@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for Tailwind toggle switch */
+        .toggle-checkbox:checked { @apply: bg-blue-600; right: 0; border-color: #3b82f6; }
+        .toggle-checkbox:checked + .toggle-label { @apply: bg-blue-600; }
+        .toggle-checkbox { transition: all 0.2s ease; }
+        .toggle-label { transition: all 0.2s ease; }
+        .page-btn { @apply px-4 py-2 mx-1 border border-gray-300 rounded-md bg-white text-sm font-medium text-gray-700 hover:bg-gray-50; }
+        .page-btn:disabled { @apply bg-gray-100 text-gray-400 cursor-not-allowed; }
+        /* Style for breaking long links */
+        .word-break-all { word-break: break-all; }
+    </style>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
+          },
+        },
+      }
+    </script>
+</head>
+<body class="bg-gray-100 font-sans text-gray-900">
+
+    <div class="container mx-auto max-w-4xl p-4 md:p-8">
+        <header class="mb-8">
+            <h1 class="text-4xl font-bold text-gray-800">Markdown File Analyzer</h1>
+            <p class="text-lg text-gray-600">Scan folders on your remote server and run simple reports.</p>
+        </header>
+
+        <!-- Loading Spinners (hidden by default) -->
+        <div id="scan-loading" class="hidden items-center justify-center space-x-2 my-4">
+            <div class="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            <span class="text-gray-600">Scanning folder...</span>
+        </div>
+        <div id="analyze-loading" class="hidden items-center justify-center space-x-2 my-4">
+            <div class="w-6 h-6 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+            <span class="text-gray-600">Analyzing files... this may take a moment if checking 404s...</span>
+        </div>
+
+        <!-- Error Message Box -->
+        <div id="error-box" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative my-4" role="alert">
+            <strong class="font-bold">Error:</strong>
+            <span class="block sm:inline" id="error-message"></span>
+        </div>
+
+        <!-- Section 1: Scan and Analyze -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h2 class="text-2xl font-semibold mb-4">1. Scan and Analyze Folder</h2>
+            <p class="text-sm text-gray-500 mb-2">Enter the <strong>absolute path</strong> to the folder you want to scan (e.g., <code class="bg-gray-200 px-1 rounded">/scan_data/mariadb-cloud</code>).</p>
+            <div class="flex flex-col sm:flex-row sm:space-x-2">
+                <input type="text" id="folder-path" class="flex-grow w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="/scan_data/my_project">
+            </div>
+            
+            <!-- Analysis Options (The "OG" 3) -->
+            <div class="mt-6">
+                <h3 class="text-lg font-medium mb-3">Analysis Options</h3>
+                <div class="space-y-4">
+                    <!-- Option 1: Broken Links -->
+                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <span class="font-medium text-gray-700">Find Broken Links (404s)</span>
+                        <div class="relative inline-block w-10 mr-2 align-middle select-none">
+                            <input type="checkbox" id="check-broken-links" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
+                            <label for="check-broken-links" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                        </div>
+                    </div>
+                    <!-- Option 2: Specific URL -->
+                    <div class="p-3 bg-gray-50 rounded-lg">
+                        <div class="flex items-center justify-between">
+                            <span class="font-medium text-gray-700">Find links starting with a specific URL</span>
+                            <div class="relative inline-block w-10 mr-2 align-middle select-none">
+                                <input type="checkbox" id="check-specific-url" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
+                                <label for="check-specific-url" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                            </div>
+                        </div>
+                        <input type="text" id="specific-url" class="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md" placeholder="https.example.com">
+                    </div>
+                    <!-- Option 3: Untagged Code Blocks -->
+                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <span class="font-medium text-gray-700">Find untagged code blocks (```)</span>
+                        <div class="relative inline-block w-10 mr-2 align-middle select-none">
+                            <input type="checkbox" id="check-untagged-blocks" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
+                            <label for="check-untagged-blocks" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analyze Button -->
+            <div class="mt-8 text-center">
+                <button id="scan-and-analyze-btn" class="w-full sm:w-2/3 px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition text-lg">
+                    Scan and Analyze
+                </button>
+            </div>
+        </div>
+
+        <!-- Section 3: Results (hidden until analysis) -->
+        <div id="results-section" class="hidden bg-white p-6 rounded-lg shadow-md">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-semibold">2. Analysis Results</h2>
+                <button id="download-csv-btn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none">
+                    Download Report (CSV)
+                </button>
+            </div>
+            <div id="results-container" class="space-y-4">
+                <!-- Results will be populated here -->
+            </div>
+            
+            <!-- Pagination Controls -->
+            <div id="pagination-controls" class="hidden flex justify-between items-center mt-6">
+                <button id="prev-page-btn" class="page-btn">Previous</button>
+                <span id="page-info" class="text-sm text-gray-700">Page 1 of 1</span>
+                <button id="next-page-btn" class="page-btn">Next</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let lastFullResults = {}; // Stores all results from server
+        let paginatedResults = []; // Stores only the files with issues
+        let currentPage = 1;
+        const resultsPerPage = 20; // Show 20 files per page
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DOM Elements ---
+            const scanAndAnalyzeBtn = document.getElementById('scan-and-analyze-btn');
+            const folderPathInput = document.getElementById('folder-path');
+            const resultsSection = document.getElementById('results-section');
+            const resultsContainer = document.getElementById('results-container');
+            const downloadCsvBtn = document.getElementById('download-csv-btn');
+            const paginationControls = document.getElementById('pagination-controls');
+            const prevPageBtn = document.getElementById('prev-page-btn');
+            const nextPageBtn = document.getElementById('next-page-btn');
+            const pageInfo = document.getElementById('page-info');
+            
+            const scanLoading = document.getElementById('scan-loading');
+            const analyzeLoading = document.getElementById('analyze-loading');
+            const errorBox = document.getElementById('error-box');
+            const errorMessage = document.getElementById('error-message');
+
+            // --- Helper Functions ---
+            function showError(message) {
+                errorMessage.textContent = message;
+                errorBox.classList.remove('hidden');
+            }
+            function hideError() {
+                errorBox.classList.add('hidden');
+            }
+            function setScanLoading(isLoading) {
+                scanLoading.classList.toggle('hidden', !isLoading);
+                scanAndAnalyzeBtn.disabled = isLoading;
+            }
+            function setAnalyzeLoading(isLoading) {
+                analyzeLoading.classList.toggle('hidden', !isLoading);
+                scanAndAnalyzeBtn.disabled = isLoading;
+            }
+            // UPDATED: Simple escape function
+            function escapeHTML(str) {
+                 if (typeof str !== 'string') return '';
+                 return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+            }
+
+            // --- Main API Call Function ---
+            async function runFullAnalysis() {
+                hideError();
+                setScanLoading(true);
+                resultsSection.classList.add('hidden');
+                resultsContainer.innerHTML = '';
+                paginationControls.classList.add('hidden');
+                lastFullResults = {};
+                paginatedResults = [];
+                currentPage = 1;
+
+                const folderPath = folderPathInput.value;
+                if (!folderPath) {
+                    showError('Please enter a folder path.');
+                    setScanLoading(false);
+                    return;
+                }
+
+                // --- Step 1: Scan for files ---
+                let allFiles = [];
+                let serverBasePath = '';
+                try {
+                    const scanResponse = await fetch('/scan_folder', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ folder_path: folderPath })
+                    });
+                    const scanData = await scanResponse.json();
+                    if (!scanResponse.ok) throw new Error(scanData.error || 'Unknown server error during scan');
+                    allFiles = scanData.files || [];
+                    serverBasePath = scanData.base_path || '';
+                    if (allFiles.length === 0) {
+                        showError('No .md files found in that directory.');
+                        setScanLoading(false);
+                        return;
+                    }
+                } catch (err) {
+                    showError(err.message);
+                    setScanLoading(false);
+                    return;
+                }
+
+                // --- Step 2: Analyze the files ---
+                setScanLoading(false);
+                setAnalyzeLoading(true);
+                
+                const options = {
+                    check_broken_links: document.getElementById('check-broken-links').checked,
+                    check_specific_url: document.getElementById('check-specific-url').checked,
+                    specific_url: document.getElementById('specific-url').value,
+                    check_untagged_blocks: document.getElementById('check-untagged-blocks').checked,
+                };
+                
+                if (!options.check_broken_links && !options.check_specific_url && !options.check_untagged_blocks) {
+                    showError("Please select at least one analysis option.");
+                    setAnalyzeLoading(false);
+                    return;
+                }
+
+                try {
+                    const analyzeResponse = await fetch('/analyze_files', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            files: allFiles,
+                            options: options,
+                            base_path: serverBasePath
+                        })
+                    });
+                    const analyzeData = await analyzeResponse.json();
+                    if (!analyzeResponse.ok) throw new Error(analyzeData.error || 'Unknown server error');
+                    
+                    lastFullResults = analyzeData.results; // Save for CSV
+                    processResults(lastFullResults, options);
+                    resultsSection.classList.remove('hidden');
+
+                } catch (err) {
+                    showError(err.message);
+                } finally {
+                    setAnalyzeLoading(false);
+                }
+            }
+
+            // --- Process and Paginate Results ---
+            function processResults(results, options) {
+                paginatedResults = [];
+                for (const [file, result] of Object.entries(results)) {
+                    let hasFinding = false;
+                    if (result.error) hasFinding = true;
+                    if (options.check_broken_links && result.broken_links?.length) hasFinding = true;
+                    if (options.check_specific_url && result.specific_url_links?.length) hasFinding = true;
+                    if (options.check_untagged_blocks && result.untagged_blocks?.length) hasFinding = true;
+
+                    if (hasFinding) {
+                        paginatedResults.push({ file, result });
+                    }
+                }
+
+                if (paginatedResults.length === 0) {
+                    resultsContainer.innerHTML = '<p class="text-lg text-green-600 font-medium text-center">Scan complete. No issues found in any files based on the selected options.</p>';
+                    paginationControls.classList.add('hidden');
+                } else {
+                    currentPage = 1;
+                    displayPage(currentPage);
+                    paginationControls.classList.remove('hidden');
+                }
+            }
+
+            // --- Display Page Function (UPDATED) ---
+            function displayPage(page) {
+                currentPage = page;
+                resultsContainer.innerHTML = ''; // Clear current page
+                
+                const totalPages = Math.ceil(paginatedResults.length / resultsPerPage);
+                if (totalPages === 0) {
+                    paginationControls.classList.add('hidden');
+                    return;
+                }
+                
+                const startIndex = (page - 1) * resultsPerPage;
+                const endIndex = startIndex + resultsPerPage;
+                const pageItems = paginatedResults.slice(startIndex, endIndex);
+
+                const options = {
+                    check_broken_links: document.getElementById('check-broken-links').checked,
+                    check_specific_url: document.getElementById('check-specific-url').checked,
+                    check_untagged_blocks: document.getElementById('check-untagged-blocks').checked,
+                };
+
+                for (const item of pageItems) {
+                    const { file, result } = item;
+                    const resultCard = document.createElement('div');
+                    resultCard.className = 'border border-gray-200 rounded-lg p-4';
+                    
+                    let contentHTML = `<h3 class="text-xl font-semibold text-gray-900">${escapeHTML(result.title) || 'No H1 Title Found'}</h3>
+                                     <p class="text-sm text-gray-500 font-mono mb-3">${escapeHTML(file)}</p>`;
+                    
+                    if (result.error) {
+                        contentHTML += `<p class="text-red-600"><strong>Error:</strong> ${escapeHTML(result.error)}</p>`;
+                    } else {
+                        contentHTML += '<ul class="list-disc list-inside mt-1 space-y-2">';
+                        
+                        // --- FIX: Added fallbacks and removed truncate ---
+                        if (options.check_broken_links && result.broken_links?.length) {
+                            contentHTML += '<li><strong>Broken Links:</strong><ul class="list-none list-inside ml-4 space-y-1">';
+                            contentHTML += result.broken_links.map(l => 
+                                `<li class="text-sm">
+                                    <strong>Anchor:</strong> <span class="text-gray-700">${escapeHTML(l.text) || '<em>[No Anchor Text]</em>'}</span><br>
+                                    <strong class="text-red-700">URL:</strong> <span class="text-red-700 word-break-all">${escapeHTML(l.link)} (${escapeHTML(l.status.toString())})</span>
+                                 </li>`
+                            ).join('');
+                            contentHTML += '</ul></li>';
+                        }
+                        
+                        if (options.check_specific_url && result.specific_url_links?.length) {
+                            contentHTML += '<li><strong>Specific URL Links Found:</strong><ul class="list-none list-inside ml-4 space-y-1">';
+                            contentHTML += result.specific_url_links.map(l => 
+                                `<li class="text-sm">
+                                    <strong>Anchor:</strong> <span class="text-gray-700">${escapeHTML(l.text) || '<em>[No Anchor Text]</em>'}</span><br>
+                                    <strong class="text-blue-700">URL:</strong> <span class="text-blue-700 word-break-all">${escapeHTML(l.link)}</span>
+                                 </li>`
+                            ).join('');
+                            contentHTML += '</ul></li>';
+                        }
+                        // --- END FIX ---
+
+                        if (options.check_untagged_blocks && result.untagged_blocks?.length) {
+                            contentHTML += `<li><strong>Untagged Code Blocks on Lines:</strong> <span class="text-sm text-yellow-800">${result.untagged_blocks.join(', ')}</span></li>`;
+                        }
+                        
+                        contentHTML += '</ul>';
+                    }
+                    resultCard.innerHTML = contentHTML;
+                    resultsContainer.appendChild(resultCard);
+                }
+                
+                // Update pagination controls
+                pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+                prevPageBtn.disabled = (currentPage === 1);
+                nextPageBtn.disabled = (currentPage === totalPages);
+            }
+
+            // --- CSV EXPORT FUNCTION (Unchanged) ---
+            function downloadCSV() {
+                if (Object.keys(lastFullResults).length === 0) {
+                    alert("No results to export. Please run a scan first."); return;
+                }
+                let csvContent = "data:text/csv;charset=utf-8,";
+                csvContent += "File,Title,IssueType,AnchorText,Details,LinkOrLine\n";
+                const escapeCSV = (str) => `"${(str || '').replace(/"/g, '""')}"`;
+                for (const [file, r] of Object.entries(lastFullResults)) {
+                    const title = escapeCSV(r.title);
+                    const fileE = escapeCSV(file);
+                    if (r.error) csvContent += `${fileE},${title},"Error","N/A",${escapeCSV(r.error)},""\n`;
+                    if (r.broken_links?.length) {
+                        r.broken_links.forEach(l => {
+                            csvContent += `${fileE},${title},"Broken Link",${escapeCSV(l.text)},${escapeCSV(l.status)},${escapeCSV(l.link)}\n`;
+                        });
+                    }
+                    if (r.specific_url_links?.length) {
+                        r.specific_url_links.forEach(l => {
+                            csvContent += `${fileE},${title},"Specific URL",${escapeCSV(l.text)},${escapeCSV(l.link)},${escapeCSV(l.link)}\n`;
+                        });
+                    }
+                    if (r.untagged_blocks?.length) {
+                        r.untagged_blocks.forEach(line => {
+                            csvContent += `${fileE},${title},"Untagged Code Block","N/A","Line",${escapeCSV(line)}\n`;
+                        });
+                    }
+                }
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", "markdown_report.csv");
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+
+            // --- Event Listeners ---
+            scanAndAnalyzeBtn.addEventListener('click', runFullAnalysis);
+            downloadCsvBtn.addEventListener('click', downloadCSV);
+            prevPageBtn.addEventListener('click', () => {
+                if (currentPage > 1) displayPage(currentPage - 1);
+            });
+            nextPageBtn.addEventListener('click', () => {
+                const totalPages = Math.ceil(paginatedResults.length / resultsPerPage);
+                if (currentPage < totalPages) displayPage(currentPage + 1);
+            });
+        });
+    </script>
+</body>
+</html>
