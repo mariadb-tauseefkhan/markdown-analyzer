@@ -4,6 +4,7 @@ import requests
 import threading
 from queue import Queue
 from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS # NEW: Import CORS
 
 # --- CONFIGURATION ---
 ALLOWED_SCAN_PATH = '/scan_data'
@@ -11,6 +12,7 @@ MAX_LINK_CHECKER_THREADS = 10
 
 # --- FLASK APP ---
 app = Flask(__name__)
+CORS(app) # NEW: Enable CORS for all routes
 
 # --- HELPER FUNCTIONS ---
 
@@ -55,9 +57,6 @@ def check_links_threaded(links):
     return broken_links
 
 def analyze_single_file(full_path, options):
-    """
-    Analyzes a single markdown file based on the selected options.
-    """
     try:
         with open(full_path, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -66,17 +65,11 @@ def analyze_single_file(full_path, options):
 
     result = {}
     
-    # Get Title (always)
     title_match = re.search(r'^\s*#\s+(.+)', content, re.MULTILINE)
-    if title_match:
-        result['title'] = title_match.group(1).strip()
-    else:
-        result['title'] = 'No H1 Title Found'
+    result['title'] = title_match.group(1).strip() if title_match else 'No H1 Title Found'
     
-    # --- Find all HTTP/HTTPS links WITH ANCHOR TEXT ---
     http_links_with_anchor = re.findall(r'\[(.*?)\]\((https?://[^\)]+)\)', content)
 
-    # --- 1. Check for Broken Links ---
     if options.get('check_broken_links'):
         links_to_check = [url for text, url in http_links_with_anchor]
         broken_link_results = check_links_threaded(links_to_check)
@@ -85,14 +78,9 @@ def analyze_single_file(full_path, options):
         for b in broken_link_results:
             link = b['link']
             anchor_text = link_to_text_map.get(link, '[Image or No Anchor]')
-            broken_links_with_anchor.append({
-                'link': link, 
-                'status': b['status'], 
-                'text': anchor_text
-            })
+            broken_links_with_anchor.append({'link': link, 'status': b['status'], 'text': anchor_text})
         result['broken_links'] = broken_links_with_anchor
 
-    # --- 2. Check for Specific URL ---
     if options.get('check_specific_url'):
         specific_url = options.get('specific_url', '').strip()
         found_links = []
@@ -102,7 +90,6 @@ def analyze_single_file(full_path, options):
                     found_links.append({'link': url, 'text': text})
         result['specific_url_links'] = found_links
 
-    # --- 3. Check for Untagged Code Blocks ---
     if options.get('check_untagged_blocks'):
         untagged = []
         lines = content.split('\n')
@@ -112,26 +99,21 @@ def analyze_single_file(full_path, options):
             if stripped_line.startswith('```'):
                 if not in_code_block:
                     in_code_block = True
-                    if stripped_line == '```':
+                    if stripped_line == '```': 
                         untagged.append(i)
                 else:
                     in_code_block = False
         result['untagged_blocks'] = untagged
 
-    # --- 4. NEW: Find Specific Text ---
     if options.get('check_find_text'):
         text_to_find = options.get('text_to_find', '').strip()
         found_lines = []
         if text_to_find:
-            # We will search case-insensitive
             text_lower = text_to_find.lower()
             lines = content.split('\n')
             for i, line in enumerate(lines, 1):
                 if text_lower in line.lower():
-                    found_lines.append({
-                        'line_num': i,
-                        'line_text': line.strip() # Send the whole line back
-                    })
+                    found_lines.append({'line_num': i, 'line_text': line.strip()})
         result['found_text'] = found_lines
 
     return result
@@ -141,6 +123,18 @@ def analyze_single_file(full_path, options):
 @app.route('/')
 def serve_index():
     return send_from_directory('.', 'index.html')
+
+# --- NEW: API DOCS ENDPOINTS ---
+@app.route('/api')
+def serve_api_docs():
+    """Serves the interactive API documentation page."""
+    return send_from_directory('.', 'api.html')
+
+@app.route('/openapi.yaml')
+def serve_openapi_spec():
+    """Serves the raw OpenAPI spec file."""
+    return send_from_directory('.', 'openapi.yaml')
+# --- END NEW ENDPOINTS ---
 
 @app.route('/scan_folder', methods=['POST'])
 def scan_folder():
