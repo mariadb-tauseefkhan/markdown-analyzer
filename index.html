@@ -118,6 +118,11 @@
                 </div>
                 <p id="loading-text" class="mt-4 text-sm font-medium text-slate-600">Processing...</p>
             </div>
+            
+            <!-- Welcome Message (This is new, in case analytics fails) -->
+            <div id="welcome-message" class="hidden text-center text-gray-500">
+                 <p class="text-lg">Run a scan or dashboard to begin.</p>
+            </div>
 
             <!-- CONTENT: ANALYTICS DASHBOARD -->
             <div id="content-analytics">
@@ -215,7 +220,7 @@
                 <!-- Detailed Results List -->
                 <div id="results-section" class="pro-card">
                     <div class="flex justify-between items-center mb-6 pb-4 border-b border-slate-100">
-                        <h3 class="text-lg font-bold text-slate-900">Detailed Findings</h3>
+                        <h3 id="report-title" class="text-lg font-bold text-slate-900">Detailed Findings</h3>
                          <button id="download-csv-btn" class="btn-secondary flex items-center">
                             <svg class="w-4 h-4 mr-2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                             Export CSV
@@ -282,7 +287,8 @@
                 paginationControls: document.getElementById('pagination-controls'),
                 prevPageBtn: document.getElementById('prev-page-btn'),
                 nextPageBtn: document.getElementById('next-page-btn'),
-                pageInfo: document.getElementById('page-info')
+                pageInfo: document.getElementById('page-info'),
+                welcomeMessage: document.getElementById('welcome-message')
             };
 
             // --- Tab Switching ---
@@ -346,6 +352,7 @@
                 DOMElements.scanBtn.disabled = isLoading;
                 DOMElements.refreshAnalyticsBtn.disabled = isLoading;
                 if (isLoading) DOMElements.resultsWrapper.classList.add('hidden');
+                if (!isLoading) DOMElements.welcomeMessage.classList.add('hidden');
             }
             function escapeHTML(str) {
                  if (typeof str !== 'string') return '';
@@ -376,11 +383,10 @@
                  grid.innerHTML += createKpi('Files Scanned', analytics.files_scanned, 'indigo', 'Total markdown files');
                  grid.innerHTML += createKpi('Total Lines', analytics.total_lines.toLocaleString(), 'slate', 'Across all files');
                  grid.innerHTML += createKpi('Code Blocks', analytics.code_blocks.total.toLocaleString(), 'emerald', `${analytics.code_blocks.untagged} untagged`, 'csv-analytics-code');
-                 grid.innerHTML += createKpi('Total Links', analytics.links.total_external + analytics.links.total_internal, `${analytics.links.total_external} External / ${analytics.links.total_internal} Internal`);
+                 grid.innerHTML += createKpi('Total Links', (analytics.links.total_external + analytics.links.total_internal).toLocaleString(), `${analytics.links.total_external} External`);
                  grid.innerHTML += createKpi('Stub Pages', analytics.content.stubs, 'yellow', 'Files < 100 words');
                  grid.innerHTML += createKpi('TODOs Found', analytics.content.todos, 'rose', 'TODO or FIXME tags');
                  
-                 // Add download listeners for analytics
                  addAnalyticsCsvListeners();
             }
 
@@ -437,6 +443,7 @@
                 DOMElements.dashboardSection.innerHTML = '';
                 DOMElements.chartsSection.innerHTML = '';
                 DOMElements.resultsContainer.innerHTML = '';
+                DOMElements.paginationControls.classList.add('hidden');
                 
                 if (task === 'code_blocks') renderCodeBlockReport(data);
                 else if (task === 'specific_url') renderSpecificUrlReport(data);
@@ -454,10 +461,9 @@
             }
 
             function createChart(canvasId, type, chartData, customOptions = {}) {
-                // Clear old chart
-                if (canvasId === 'code-blocks-chart' && codeBlocksChart) codeBlocksChart.destroy();
-                if (canvasId === 'domain-chart' && domainChart) domainChart.destroy();
-                if (canvasId === 'status-chart' && statusChart) statusChart.destroy();
+                if (codeBlocksChart) codeBlocksChart.destroy();
+                if (domainChart) domainChart.destroy();
+                if (statusChart) statusChart.destroy();
 
                 const chartContainer = DOMElements.chartsSection;
                 chartContainer.innerHTML = ''; // Clear old charts
@@ -498,11 +504,16 @@
                     }, { legend: { position: 'bottom' } });
                 }
                 
-                if (details.length === 0) {
+                setupPagination(details, renderCodeBlockPage);
+            }
+            
+            function renderCodeBlockPage(pageItems) {
+                DOMElements.resultsContainer.innerHTML = '';
+                if (pageItems.length === 0) {
                     DOMElements.resultsContainer.innerHTML = '<p class="text-gray-500 text-center py-4">No files found matching your criteria.</p>';
                     return;
                 }
-                details.forEach(item => {
+                pageItems.forEach(item => {
                     DOMElements.resultsContainer.innerHTML += `
                         <div class="pro-card p-4">
                             <h3 class="text-lg font-semibold">${escapeHTML(item.title)}</h3>
@@ -518,24 +529,27 @@
                 const { details } = data;
                 DOMElements.reportTitle.textContent = 'Specific URL Report';
                 createScanKpiCard('Files with Link', details.length);
-
-                if (details.length === 0) {
-                    DOMElements.resultsContainer.innerHTML = '<p class="text-gray-500 text-center py-4">No files with that specific URL found.</p>';
-                    return;
-                }
-                details.forEach(item => {
-                    let linksHtml = item.found_links.map(l => 
-                        `<li class="text-sm">
-                            <strong>Anchor:</strong> <span class="text-gray-700">${escapeHTML(l.text) || '<em>[No Anchor Text]</em>'}</span><br>
-                            <strong class="text-blue-700">URL:</strong> <span class="text-blue-700" style="word-break: break-all;">${escapeHTML(l.link)}</span>
-                         </li>`
-                    ).join('');
-                    DOMElements.resultsContainer.innerHTML += `
-                        <div class="pro-card p-4">
-                            <h3 class="text-lg font-semibold">${escapeHTML(item.title)}</h3>
-                            <p class="text-sm text-slate-500 font-mono mb-2">${escapeHTML(item.file)}</p>
-                            <ul class="list-none list-inside ml-4 space-y-1">${linksHtml}</ul>
-                        </div>`;
+                
+                setupPagination(details, (pageItems) => {
+                    DOMElements.resultsContainer.innerHTML = '';
+                    if (pageItems.length === 0) {
+                        DOMElements.resultsContainer.innerHTML = '<p class="text-gray-500 text-center py-4">No files with that specific URL found.</p>';
+                        return;
+                    }
+                    pageItems.forEach(item => {
+                        let linksHtml = item.found_links.map(l => 
+                            `<li class="text-sm">
+                                <strong>Anchor:</strong> <span class="text-gray-700">${escapeHTML(l.text) || '<em>[No Anchor Text]</em>'}</span><br>
+                                <strong class="text-blue-700">URL:</strong> <span class="text-blue-700" style="word-break: break-all;">${escapeHTML(l.link)}</span>
+                             </li>`
+                        ).join('');
+                        DOMElements.resultsContainer.innerHTML += `
+                            <div class="pro-card p-4">
+                                <h3 class="text-lg font-semibold">${escapeHTML(item.title)}</h3>
+                                <p class="text-sm text-slate-500 font-mono mb-2">${escapeHTML(item.file)}</p>
+                                <ul class="list-none list-inside ml-4 space-y-1">${linksHtml}</ul>
+                            </div>`;
+                    });
                 });
             }
             
@@ -544,22 +558,25 @@
                 DOMElements.reportTitle.textContent = 'Find Text Report';
                 createScanKpiCard('Files with Text', details.length);
 
-                if (details.length === 0) {
-                    DOMElements.resultsContainer.innerHTML = '<p class="text-gray-500 text-center py-4">No files with that text found.</p>';
-                    return;
-                }
-                details.forEach(item => {
-                    let linesHtml = item.found_text.map(l => 
-                        `<li class="text-sm">
-                            <strong>Line ${l.line_num}:</strong> <span class="text-gray-700 bg-yellow-100 p-1 rounded">${escapeHTML(l.line_text)}</span>
-                         </li>`
-                    ).join('');
-                    DOMElements.resultsContainer.innerHTML += `
-                        <div class="pro-card p-4">
-                            <h3 class="text-lg font-semibold">${escapeHTML(item.title)}</h3>
-                            <p class="text-sm text-slate-500 font-mono mb-2">${escapeHTML(item.file)}</p>
-                            <ul class="list-none list-inside ml-4 space-y-1">${linesHtml}</ul>
-                        </div>`;
+                setupPagination(details, (pageItems) => {
+                    DOMElements.resultsContainer.innerHTML = '';
+                    if (pageItems.length === 0) {
+                        DOMElements.resultsContainer.innerHTML = '<p class="text-gray-500 text-center py-4">No files with that text found.</p>';
+                        return;
+                    }
+                    pageItems.forEach(item => {
+                        let linesHtml = item.found_text.map(l => 
+                            `<li class="text-sm">
+                                <strong>Line ${l.line_num}:</strong> <span class="text-gray-700 bg-yellow-100 p-1 rounded">${escapeHTML(l.line_text)}</span>
+                             </li>`
+                        ).join('');
+                        DOMElements.resultsContainer.innerHTML += `
+                            <div class="pro-card p-4">
+                                <h3 class="text-lg font-semibold">${escapeHTML(item.title)}</h3>
+                                <p class="text-sm text-slate-500 font-mono mb-2">${escapeHTML(item.file)}</p>
+                                <ul class="list-none list-inside ml-4 space-y-1">${linesHtml}</ul>
+                            </div>`;
+                    });
                 });
             }
 
@@ -581,28 +598,62 @@
                     }, { legend: { position: 'bottom' } });
                 }
                 
-                if (details.length === 0) {
-                    DOMElements.resultsContainer.innerHTML = '<p class="text-gray-500 text-center py-4">No links matching your filter were found.</p>';
-                    return;
-                }
-                details.forEach(item => {
-                    let linksHtml = item.links.map(l => {
-                        let color = 'text-green-700';
-                        if (l.status_category === '3xx') color = 'text-blue-700';
-                        if (l.status_category.match(/[45]xx|Timeout|Error|Invalid/)) color = 'text-red-700';
-                        
-                        return `<li class="text-sm">
-                                    <strong>Anchor:</strong> <span class="text-gray-700">${escapeHTML(l.text) || '<em>[No Anchor Text]</em>'}</span><br>
-                                    <strong class="${color}">[${l.status_code}]</strong> <span class="${color}" style="word-break: break-all;">${escapeHTML(l.link)}</span>
-                                 </li>`
-                    }).join('');
-                    DOMElements.resultsContainer.innerHTML += `
-                        <div class="pro-card p-4">
-                            <h3 class="text-lg font-semibold">${escapeHTML(item.title)}</h3>
-                            <p class="text-sm text-slate-500 font-mono mb-2">${escapeHTML(item.file)}</p>
-                            <ul class="list-none list-inside ml-4 space-y-1">${linksHtml}</ul>
-                        </div>`;
+                setupPagination(details, (pageItems) => {
+                    DOMElements.resultsContainer.innerHTML = '';
+                    if (pageItems.length === 0) {
+                        DOMElements.resultsContainer.innerHTML = '<p class="text-gray-500 text-center py-4">No links matching your filter were found.</p>';
+                        return;
+                    }
+                    pageItems.forEach(item => {
+                        let linksHtml = item.links.map(l => {
+                            let color = 'text-green-700';
+                            if (l.status_category === '3xx') color = 'text-blue-700';
+                            if (l.status_category.match(/[45]xx|Timeout|Error|Invalid/)) color = 'text-red-700';
+                            
+                            return `<li class="text-sm">
+                                        <strong>Anchor:</strong> <span class="text-gray-700">${escapeHTML(l.text) || '<em>[No Anchor Text]</em>'}</span><br>
+                                        <strong class="${color}">[${l.status_code}]</strong> <span class="${color}" style="word-break: break-all;">${escapeHTML(l.link)}</span>
+                                     </li>`
+                        }).join('');
+                        DOMElements.resultsContainer.innerHTML += `
+                            <div class="pro-card p-4">
+                                <h3 class="text-lg font-semibold">${escapeHTML(item.title)}</h3>
+                                <p class="text-sm text-slate-500 font-mono mb-2">${escapeHTML(item.file)}</p>
+                                <ul class="list-none list-inside ml-4 space-y-1">${linksHtml}</ul>
+                            </div>`;
+                    });
                 });
+            }
+
+            // --- Pagination Logic ---
+            function setupPagination(details, renderPageCallback) {
+                paginatedResults = details;
+                currentPage = 1;
+                const totalPages = Math.ceil(paginatedResults.length / resultsPerPage);
+
+                if (totalPages > 1) {
+                    DOMElements.paginationControls.classList.remove('hidden');
+                } else {
+                    DOMElements.paginationControls.classList.add('hidden');
+                }
+
+                displayPage(1, renderPageCallback);
+            }
+
+            function displayPage(page, renderPageCallback) {
+                currentPage = page;
+                const totalPages = Math.ceil(paginatedResults.length / resultsPerPage);
+                
+                const startIndex = (page - 1) * resultsPerPage;
+                const endIndex = startIndex + resultsPerPage;
+                const pageItems = paginatedResults.slice(startIndex, endIndex);
+
+                renderPageCallback(pageItems); // Call the specific renderer
+                
+                // Update pagination controls
+                DOMElements.pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+                DOMElements.prevPageBtn.disabled = (currentPage === 1);
+                DOMElements.nextPageBtn.disabled = (currentPage === totalPages);
             }
             
             // --- CSV EXPORT FUNCTION ---
@@ -633,20 +684,13 @@
             }
             
             function addAnalyticsCsvListeners() {
-                // This is for the "Analytics" tab, to add download buttons to KPIs
-                const { details } = lastReportData; // Assumes lastReportData is from 'full_analytics'
-                if (!details) return;
-
-                document.getElementById('csv-analytics-code')?.addEventListener('click', () => {
-                    let csv = "File,Title,UntaggedCount\n";
-                    details.code_blocks.forEach(r => csv += `"${r.file}","${r.title}",${r.untagged}\n`);
-                    downloadFile('analytics_untagged_code_report.csv', "data:text/csv;charset=utf-8," + encodeURI(csv));
-                });
+                // We're not using this right now, but it's here for the future.
             }
             
             function downloadFile(filename, content) {
+                const encodedUri = encodeURI(content);
                 const link = document.createElement("a");
-                link.setAttribute("href", content);
+                link.setAttribute("href", encodedUri);
                 link.setAttribute("download", filename);
                 document.body.appendChild(link);
                 link.click();

@@ -30,10 +30,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnalyticsDashboard'
-        '400':
-          description: Bad request (e.g., no folder_path).
+        '403':
+          description: Path is not allowed.
+        '404':
+          description: Path not found.
         '500':
-          description: Internal error (e.g., cannot connect to analytics-service).
+          description: "Failed to connect to analytics-service."
 
   /run_scan:
     post:
@@ -60,11 +62,13 @@ paths:
                     code_block_task: "untagged"
       responses:
         '200':
-          description: A detailed report for the requested task.
+          description: A detailed report. The structure depends on the 'task' provided.
         '400':
           description: Bad request (e.g., missing task).
+        '404':
+          description: No .md files found.
         '500':
-          description: Internal error (e.g., cannot connect to a scan-service).
+          description: "Failed to connect to a scan-service."
 
 components:
   schemas:
@@ -81,23 +85,16 @@ components:
             code_blocks:
               type: object
               properties:
-                total:
-                  type: integer
-                tagged:
-                  type: integer
-                untagged:
-                  type: integer
+                total: { type: integer }
+                tagged: { type: integer }
+                untagged: { type: integer }
             links:
               type: object
               properties:
-                total_external:
-                  type: integer
-                total_internal:
-                  type: integer
+                total_external: { type: integer }
+                total_internal: { type: integer }
             content:
               type: object
               properties:
-                stubs:
-                  type: integer
-                todos:
-                  type: integer
+                stubs: { type: integer }
+                todos: { type: integer }
