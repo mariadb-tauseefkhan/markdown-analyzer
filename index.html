@@ -380,40 +380,52 @@
 
             // --- CSV EXPORT FUNCTION (FIXED) ---
             function downloadCSV() {
-                if (Object.keys(lastFullResults).length === 0) {
+                if (!lastFullResults || Object.keys(lastFullResults).length === 0) {
                     alert("No results to export. Please run a scan first."); return;
                 }
+                
                 let csvContent = "data:text/csv;charset=utf-8,";
                 csvContent += "File,Title,IssueType,AnchorText,Details,LinkOrLine\n";
-                const escapeCSV = (str) => `"${(str || '').replace(/"/g, '""')}"`;
                 
+                const escapeCSV = (str) => {
+                    let s = String(str || ''); // Coerce to string
+                    return `"${s.replace(/"/g, '""')}"`;
+                };
+
                 for (const [file, r] of Object.entries(lastFullResults)) {
+                    if (!r) continue; // Skip if result is null
+                    
                     const title = escapeCSV(r.title);
                     const fileE = escapeCSV(file);
                     
-                    if (r.error) csvContent += `${fileE},${title},"Error","N/A",${escapeCSV(r.error)},""\n`;
-                    
-                    if (r.broken_links?.length) {
+                    if (r.error) {
+                        csvContent += `${fileE},${title},"Error","N/A",${escapeCSV(r.error)},""\n`;
+                    }
+                    if (r.broken_links && r.broken_links.length > 0) {
                         r.broken_links.forEach(l => {
-                            csvContent += `${fileE},${title},"Broken Link",${escapeCSV(l.text)},${escapeCSV(l.status)},${escapeCSV(l.link)}\n`;
+                            if(l) csvContent += `${fileE},${title},"Broken Link",${escapeCSV(l.text)},${escapeCSV(l.status)},${escapeCSV(l.link)}\n`;
                         });
                     }
-                    if (r.specific_url_links?.length) {
+                    if (r.specific_url_links && r.specific_url_links.length > 0) {
                         r.specific_url_links.forEach(l => {
-                            csvContent += `${fileE},${title},"Specific URL",${escapeCSV(l.text)},${escapeCSV(l.link)},${escapeCSV(l.link)}\n`;
+                            if(l) csvContent += `${fileE},${title},"Specific URL",${escapeCSV(l.text)},${escapeCSV(l.link)},${escapeCSV(l.link)}\n`;
                         });
                     }
-                    if (r.untagged_blocks?.length) {
+                    if (r.untagged_blocks && r.untagged_blocks.length > 0) {
                         r.untagged_blocks.forEach(line => {
-                            csvContent += `${fileE},${title},"Untagged Code Block","N/A","Line",${escapeCSV(line)}\n`;
+                            if(line) csvContent += `${fileE},${title},"Untagged Code Block","N/A","Line",${escapeCSV(line)}\n`;
                         });
                     }
-                    // *** THIS IS THE FIX: This block was missing from your file ***
-                    if (r.found_text?.length) {
+                    
+                    // *** THIS IS THE FIX ***
+                    if (r.found_text && r.found_text.length > 0) {
                         r.found_text.forEach(item => {
-                            csvContent += `${fileE},${title},"Found Text","N/A",${escapeCSV(item.line_text)},${escapeCSV(item.line_num)}\n`;
+                            if (item) {
+                                csvContent += `${fileE},${title},"Found Text","N/A",${escapeCSV(item.line_text)},${escapeCSV(item.line_num)}\n`;
+                            }
                         });
                     }
+                    // *** END FIX ***
                 }
                 
                 const encodedUri = encodeURI(csvContent);
