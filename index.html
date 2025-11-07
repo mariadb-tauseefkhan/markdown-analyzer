@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale-1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Markdown Analyzer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -97,7 +97,7 @@
                             <label for="check-untagged-blocks" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
                         </div>
                     </div>
-                    <!-- NEW: Option 4: Find Text -->
+                    <!-- Option 4: Find Text -->
                     <div class="p-3 bg-gray-50 rounded-lg">
                         <div class="flex items-center justify-between">
                             <span class="font-medium text-gray-700">Find specific text (case-insensitive)</span>
@@ -235,7 +235,6 @@
                     check_specific_url: document.getElementById('check-specific-url').checked,
                     specific_url: document.getElementById('specific-url').value,
                     check_untagged_blocks: document.getElementById('check-untagged-blocks').checked,
-                    // NEW: Add the text find option
                     check_find_text: document.getElementById('check-find-text').checked,
                     text_to_find: document.getElementById('text-to-find').value,
                 };
@@ -279,7 +278,7 @@
                     if (options.check_broken_links && result.broken_links?.length) hasFinding = true;
                     if (options.check_specific_url && result.specific_url_links?.length) hasFinding = true;
                     if (options.check_untagged_blocks && result.untagged_blocks?.length) hasFinding = true;
-                    if (options.check_find_text && result.found_text?.length) hasFinding = true; // NEW
+                    if (options.check_find_text && result.found_text?.length) hasFinding = true;
 
                     if (hasFinding) {
                         paginatedResults.push({ file, result });
@@ -315,7 +314,7 @@
                     check_broken_links: document.getElementById('check-broken-links').checked,
                     check_specific_url: document.getElementById('check-specific-url').checked,
                     check_untagged_blocks: document.getElementById('check-untagged-blocks').checked,
-                    check_find_text: document.getElementById('check-find-text').checked, // NEW
+                    check_find_text: document.getElementById('check-find-text').checked,
                 };
 
                 for (const item of pageItems) {
@@ -357,7 +356,6 @@
                             contentHTML += `<li><strong>Untagged Code Blocks on Lines:</strong> <span class="text-sm text-yellow-800">${result.untagged_blocks.join(', ')}</span></li>`;
                         }
                         
-                        // NEW: Render found text
                         if (options.check_find_text && result.found_text?.length) {
                             contentHTML += '<li><strong>Found Text:</strong><ul class="list-none list-inside ml-4 space-y-1">';
                             contentHTML += result.found_text.map(item => 
@@ -380,7 +378,7 @@
                 nextPageBtn.disabled = (currentPage === totalPages);
             }
 
-            // --- CSV EXPORT FUNCTION ---
+            // --- CSV EXPORT FUNCTION (FIXED) ---
             function downloadCSV() {
                 if (Object.keys(lastFullResults).length === 0) {
                     alert("No results to export. Please run a scan first."); return;
@@ -388,10 +386,13 @@
                 let csvContent = "data:text/csv;charset=utf-8,";
                 csvContent += "File,Title,IssueType,AnchorText,Details,LinkOrLine\n";
                 const escapeCSV = (str) => `"${(str || '').replace(/"/g, '""')}"`;
+                
                 for (const [file, r] of Object.entries(lastFullResults)) {
                     const title = escapeCSV(r.title);
                     const fileE = escapeCSV(file);
+                    
                     if (r.error) csvContent += `${fileE},${title},"Error","N/A",${escapeCSV(r.error)},""\n`;
+                    
                     if (r.broken_links?.length) {
                         r.broken_links.forEach(l => {
                             csvContent += `${fileE},${title},"Broken Link",${escapeCSV(l.text)},${escapeCSV(l.status)},${escapeCSV(l.link)}\n`;
@@ -407,13 +408,14 @@
                             csvContent += `${fileE},${title},"Untagged Code Block","N/A","Line",${escapeCSV(line)}\n`;
                         });
                     }
-                    // NEW: Add found text to CSV
+                    // *** THIS IS THE FIX: This block was missing from your file ***
                     if (r.found_text?.length) {
                         r.found_text.forEach(item => {
                             csvContent += `${fileE},${title},"Found Text","N/A",${escapeCSV(item.line_text)},${escapeCSV(item.line_num)}\n`;
                         });
                     }
                 }
+                
                 const encodedUri = encodeURI(csvContent);
                 const link = document.createElement("a");
                 link.setAttribute("href", encodedUri);
