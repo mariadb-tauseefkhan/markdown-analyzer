@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # Service 1: The API Gateway (the "Waiter")
+  # This is the ONLY service the browser talks to (on port 5000).
+  api-gateway:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      # This service needs the code and the docs
+      - .:/app
+      - /root/mariadb-docs:/scan_data
+    # This command starts the gateway server
+    command: python gateway.py
+    depends_on:
+      - analytics-service
+      - scan-service
+      - link-auditor
+
+  # Service 2: The Analytics Service (the "Instant Dashboard")
+  analytics-service:
+    build: .
+    volumes:
+      - .:/app
+      - /root/mariadb-docs:/scan_data
+    # This command starts the analytics server on its own internal port
+    command: python analytics_service.py
+
+  # Service 3: The Scan Service (the "Fast Report")
+  scan-service:
+    build: .
+    volumes:
+      - .:/app
+      - /root/mariadb-docs:/scan_data
+    # This command starts the fast scanner on its own internal port
+    command: python scan_service.py
+
+  # Service 4: The Link Auditor (the "Slow Report")
+  link-auditor:
+    build: .
+    volumes:
+      - .:/app
+      - /root/mariadb-docs:/scan_data
+    # This command starts the slow link checker on its own internal port
+    command: python link_auditor_service.py

@@ -3,383 +3,620 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Markdown Analyzer</title>
+    <title>Markdown Analytics Suite</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        /* Custom styles for Tailwind toggle switch */
-        .toggle-checkbox:checked { @apply: bg-blue-600; right: 0; border-color: #3b82f6; }
-        .toggle-checkbox:checked + .toggle-label { @apply: bg-blue-600; }
-        .toggle-checkbox { transition: all 0.2s ease; }
-        .toggle-label { transition: all 0.2s ease; }
-        
-        /* Styles for pagination buttons */
-        .page-btn {
-            @apply px-4 py-2 mx-1 border border-gray-300 rounded-md bg-white text-sm font-medium text-gray-700 hover:bg-gray-50;
-        }
-        .page-btn:disabled {
-            @apply bg-gray-100 text-gray-400 cursor-not-allowed;
-        }
-        /* Style for breaking long links */
-        .word-break-all { word-break: break-all; }
+        body { font-family: 'Inter', sans-serif; }
+        .tab-button { @apply px-4 py-2 font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 hover:border-gray-300; }
+        .tab-button-active { @apply text-blue-600 border-blue-600; }
+        .kpi-card { @apply bg-white p-5 rounded-lg shadow; }
+        .kpi-title { @apply text-sm font-medium text-gray-500; }
+        .kpi-value { @apply text-3xl font-bold text-gray-900 mt-1; }
+        .kpi-subtext { @apply text-xs text-gray-400; }
+        .kpi-download { @apply text-xs text-blue-600 hover:underline cursor-pointer mt-2; }
     </style>
     <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ['Inter', 'sans-serif'],
-            },
-          },
-        },
-      }
+      tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter', 'sans-serif'] } } } }
     </script>
 </head>
-<body class="bg-gray-100 font-sans text-gray-900">
+<body class="bg-gray-100">
 
-    <div class="container mx-auto max-w-4xl p-4 md:p-8">
-        <header class="mb-8">
-            <div class="flex justify-between items-center">
-                <h1 class="text-4xl font-bold text-gray-800">Markdown File Analyzer</h1>
-                <!-- NEW: Link to API docs -->
-                <a href="/api" target="_blank" class="text-sm text-blue-600 hover:underline">
-                    API Reference Guide
-                </a>
+    <!-- Header -->
+    <div class="bg-white shadow-sm border-b border-gray-200">
+        <div class="container mx-auto max-w-7xl px-8">
+            <div class="flex justify-between items-center py-4">
+                <h1 class="text-2xl font-bold text-gray-900">Markdown Analytics Suite</h1>
             </div>
-            <p class="text-lg text-gray-600">Scan folders on your remote server and run simple reports.</p>
-        </header>
-
-        <!-- Loading Spinners (hidden by default) -->
-        <div id="scan-loading" class="hidden items-center justify-center space-x-2 my-4">
-            <div class="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-            <span class="text-gray-600">Scanning folder...</span>
+            <!-- Tabs -->
+            <div class="flex">
+                <button id="tab-analytics" class="tab-button tab-button-active">Analytics</button>
+                <button id="tab-scan" class="tab-button">Scan</button>
+            </div>
         </div>
-        <div id="analyze-loading" class="hidden items-center justify-center space-x-2 my-4">
-            <div class="w-6 h-6 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
-            <span class="text-gray-600">Analyzing files... this may take a moment if checking 404s...</span>
-        </div>
+    </div>
 
+    <!-- Main Content -->
+    <div class="container mx-auto max-w-7xl p-8">
+        
         <!-- Error Message Box -->
         <div id="error-box" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative my-4" role="alert">
             <strong class="font-bold">Error:</strong>
             <span class="block sm:inline" id="error-message"></span>
         </div>
 
-        <!-- Section 1: Scan and Analyze -->
-        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
-            <h2 class="text-2xl font-semibold mb-4">1. Scan and Analyze Folder</h2>
-            <p class="text-sm text-gray-500 mb-2">Enter the <strong>absolute path</strong> to the folder you want to scan (e.g., <code class="bg-gray-200 px-1 rounded">/scan_data/mariadb-cloud</code>).</p>
-            <div class="flex flex-col sm:flex-row sm:space-x-2">
-                <input type="text" id="folder-path" class="flex-grow w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="/scan_data/my_project">
-            </div>
-            
-            <!-- Analysis Options -->
-            <div class="mt-6">
-                <h3 class="text-lg font-medium mb-3">Analysis Options</h3>
-                <div class="space-y-4">
-                    <!-- Option 1: Broken Links -->
-                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <span class="font-medium text-gray-700">Find Broken Links (404s)</span>
-                        <div class="relative inline-block w-10 mr-2 align-middle select-none">
-                            <input type="checkbox" id="check-broken-links" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
-                            <label for="check-broken-links" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
-                        </div>
-                    </div>
-                    <!-- Option 2: Specific URL -->
-                    <div class="p-3 bg-gray-50 rounded-lg">
-                        <div class="flex items-center justify-between">
-                            <span class="font-medium text-gray-700">Find links starting with a specific URL</span>
-                            <div class="relative inline-block w-10 mr-2 align-middle select-none">
-                                <input type="checkbox" id="check-specific-url" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
-                                <label for="check-specific-url" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
-                            </div>
-                        </div>
-                        <input type="text" id="specific-url" class="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md" placeholder="https://example.com">
-                    </div>
-                    <!-- Option 3: Untagged Code Blocks -->
-                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <span class="font-medium text-gray-700">Find untagged code blocks (```)</span>
-                        <div class="relative inline-block w-10 mr-2 align-middle select-none">
-                            <input type="checkbox" id="check-untagged-blocks" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
-                            <label for="check-untagged-blocks" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
-                        </div>
-                    </div>
-                    <!-- Option 4: Find Text -->
-                    <div class="p-3 bg-gray-50 rounded-lg">
-                        <div class="flex items-center justify-between">
-                            <span class="font-medium text-gray-700">Find specific text (case-insensitive)</span>
-                            <div class="relative inline-block w-10 mr-2 align-middle select-none">
-                                <input type="checkbox" id="check-find-text" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
-                                <label for="check-find-text" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
-                            </div>
-                        </div>
-                        <input type="text" id="text-to-find" class="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md" placeholder="Enter text to find...">
-                    </div>
-                </div>
-            </div>
+        <!-- Loading Spinner -->
+        <div id="loading-spinner" class="hidden text-center my-10">
+            <div class="w-10 h-10 mx-auto border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            <p id="loading-text" class="text-gray-600 mt-4">Running analysis...</p>
+        </div>
 
-            <!-- Analyze Button -->
-            <div class="mt-8 text-center">
-                <button id="scan-and-analyze-btn" class="w-full sm:w-2/3 px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition text-lg">
-                    Scan and Analyze
-                </button>
+        <!-- Welcome Message -->
+        <div id="welcome-message" class="text-center text-gray-500">
+            <p class="text-lg">Select a tab and configure a scan to begin.</p>
+        </div>
+        
+        <!-- Shared Folder Path Input (Used by both tabs) -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+             <label for="folder-path" class="block text-sm font-medium text-gray-700">Folder to Analyze</label>
+             <input type="text" id="folder-path" class="mt-1 flex-grow w-full px-4 py-2 border border-gray-300 rounded-md" value="/scan_data/mariadb-cloud">
+             <p class="text-xs text-gray-500 mt-1">This path must be within the server's mounted volume.</p>
+        </div>
+
+        <!-- Content: ANALYTICS TAB -->
+        <div id="content-analytics">
+            <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+                <h2 class="text-2xl font-semibold mb-4">Instant Analytics Dashboard</h2>
+                <p class="text-gray-600 mb-4">Click the button to get a high-level overview of the folder specified above. This is a fast scan and will not check for 404s.</p>
+                <div class="mt-6 text-right">
+                    <button id="analytics-btn" class="px-8 py-3 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700">
+                        Run Instant Analytics
+                    </button>
+                </div>
             </div>
         </div>
 
-        <!-- Section 3: Results -->
-        <div id="results-section" class="hidden bg-white p-6 rounded-lg shadow-md">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-2xl font-semibold">2. Analysis Results</h2>
-                <button id="download-csv-btn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none">
+        <!-- Content: SCAN TAB -->
+        <div id="content-scan" class="hidden">
+            <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+                <h2 class="text-2xl font-semibold mb-4">Run a Specific Report</h2>
+                <p class="text-gray-600 mb-4">Select a specific report to run on the folder specified above. This will generate a detailed list of all findings.</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="scan-task" class="block text-sm font-medium text-gray-700">Scan Type</label>
+                        <select id="scan-task" class="mt-1 flex-grow w-full px-4 py-2 border border-gray-300 rounded-md">
+                            <option value="code_blocks">Find Untagged Code Blocks</option>
+                            <option value="specific_url">Find Links by URL</option>
+                            <option value="find_text">Find Specific Text</option>
+                            <option value="link_audit">Run Full Link Audit (200, 301, 404s) (SLOW)</option>
+                        </select>
+                    </div>
+                    <div id="scan-options-container" class="hidden">
+                         <label id="scan-option-label" for="scan-option-input" class="block text-sm font-medium text-gray-700">Specific URL</label>
+                         <input type="text" id="scan-option-input" class="mt-1 flex-grow w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="https://example.com">
+                    </div>
+                </div>
+                <div class="mt-6 text-right">
+                    <button id="scan-btn" class="px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700">
+                        Run Scan
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Content: RESULTS AREA (Shared) -->
+        <div id="results-wrapper" class="hidden">
+            <!-- Report Header -->
+            <div id="report-header" class="flex justify-between items-center mb-4">
+                <h2 id="report-title" class="text-3xl font-bold">Report Title</h2>
+                <button id="download-csv-btn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
                     Download Report (CSV)
                 </button>
             </div>
-            <div id="results-container" class="space-y-4"></div>
-            <div id="pagination-controls" class="hidden flex justify-between items-center mt-6">
-                <button id="prev-page-btn" class="page-btn">Previous</button>
-                <span id="page-info" class="text-sm text-gray-700">Page 1 of 1</span>
-                <button id="next-page-btn" class="page-btn">Next</button>
+            
+            <!-- Dashboard -->
+            <div id="dashboard-section" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <!-- KPI Cards are dynamically generated -->
+            </div>
+            
+            <!-- Charts -->
+            <div id="charts-section" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <!-- Charts are dynamically generated -->
+            </div>
+
+            <!-- Detailed Results -->
+            <div id="results-section">
+                <h2 class="text-2xl font-semibold mb-4">Detailed Results</h2>
+                <div id="results-container" class="space-y-6">
+                    <!-- Results will be populated here -->
+                </div>
             </div>
         </div>
+
     </div>
 
     <script>
-        let lastFullResults = {};
-        let paginatedResults = [];
-        let currentPage = 1;
-        const resultsPerPage = 20;
+        let codeBlocksChart, domainChart, statusChart;
+        let lastReportData = {}; // Store the raw data for CSV export
+        let currentReportTask = ''; // Stores the task for the CSV export
+        let lastFolderPath = ''; // Store the last folder path
 
         document.addEventListener('DOMContentLoaded', () => {
-            const scanAndAnalyzeBtn = document.getElementById('scan-and-analyze-btn');
+            // --- DOM Elements ---
+            const scanBtn = document.getElementById('scan-btn');
+            const analyticsBtn = document.getElementById('analytics-btn');
             const folderPathInput = document.getElementById('folder-path');
-            const resultsSection = document.getElementById('results-section');
-            const resultsContainer = document.getElementById('results-container');
-            const downloadCsvBtn = document.getElementById('download-csv-btn');
-            const paginationControls = document.getElementById('pagination-controls');
-            const prevPageBtn = document.getElementById('prev-page-btn');
-            const nextPageBtn = document.getElementById('next-page-btn');
-            const pageInfo = document.getElementById('page-info');
-            const analyzeLoading = document.getElementById('analyze-loading');
-            const scanLoading = document.getElementById('scan-loading');
+            const scanTaskSelect = document.getElementById('scan-task');
+            
+            const scanOptionsContainer = document.getElementById('scan-options-container');
+            const scanOptionLabel = document.getElementById('scan-option-label');
+            const scanOptionInput = document.getElementById('scan-option-input');
+            
+            const tabScan = document.getElementById('tab-scan');
+            const tabAnalytics = document.getElementById('tab-analytics');
+            const contentScan = document.getElementById('content-scan');
+            const contentAnalytics = document.getElementById('content-analytics');
+            
             const errorBox = document.getElementById('error-box');
             const errorMessage = document.getElementById('error-message');
+            const welcomeMessage = document.getElementById('welcome-message');
+            const loadingSpinner = document.getElementById('loading-spinner');
+            const loadingText = document.getElementById('loading-text');
+            const downloadCsvBtn = document.getElementById('download-csv-btn');
+            
+            const resultsWrapper = document.getElementById('results-wrapper');
+            const reportHeader = document.getElementById('report-header');
+            const reportTitle = document.getElementById('report-title');
+            const dashboardSection = document.getElementById('dashboard-section');
+            const chartsSection = document.getElementById('charts-section');
+            const resultsSection = document.getElementById('results-section');
+            const resultsContainer = document.getElementById('results-container');
 
+            // --- Tab Switching ---
+            tabScan.addEventListener('click', () => {
+                tabScan.classList.add('tab-button-active');
+                tabAnalytics.classList.remove('tab-button-active');
+                contentScan.classList.remove('hidden');
+                contentAnalytics.classList.add('hidden');
+                hideAllContent();
+            });
+            tabAnalytics.addEventListener('click', () => {
+                tabScan.classList.remove('tab-button-active');
+                tabAnalytics.classList.add('tab-button-active');
+                contentScan.classList.add('hidden');
+                contentAnalytics.classList.remove('hidden');
+                hideAllContent();
+            });
+
+            // --- Dynamic Scan Options ---
+            scanTaskSelect.addEventListener('change', () => {
+                const task = scanTaskSelect.value;
+                if (task === 'specific_url') {
+                    scanOptionLabel.textContent = 'URL to find (e.g., https://example.com)';
+                    scanOptionInput.placeholder = 'https://example.com';
+                    scanOptionsContainer.classList.remove('hidden');
+                } else if (task === 'find_text') {
+                    scanOptionLabel.textContent = 'Text to find (case-insensitive)';
+                    scanOptionInput.placeholder = 'Enter text...';
+                    scanOptionsContainer.classList.remove('hidden');
+                } else {
+                    scanOptionsContainer.classList.add('hidden');
+                }
+            });
+            scanTaskSelect.dispatchEvent(new Event('change')); // Run on load
+
+            // --- Event Listeners ---
+            scanBtn.addEventListener('click', () => runAnalysis('scan'));
+            analyticsBtn.addEventListener('click', () => runAnalysis('analytics'));
+            downloadCsvBtn.addEventListener('click', downloadCSV);
+
+            // --- Helper Functions ---
             function showError(message) { errorMessage.textContent = message; errorBox.classList.remove('hidden'); }
             function hideError() { errorBox.classList.add('hidden'); }
-            function setScanLoading(isLoading) {
-                scanLoading.classList.toggle('hidden', !isLoading);
-                scanAndAnalyzeBtn.disabled = isLoading;
+            function setLoading(isLoading, text = 'Scanning...') {
+                loadingSpinner.classList.toggle('hidden', !isLoading);
+                loadingText.textContent = text;
+                scanBtn.disabled = isLoading;
+                analyticsBtn.disabled = isLoading;
             }
-            function setAnalyzeLoading(isLoading) {
-                analyzeLoading.classList.toggle('hidden', !isLoading);
-                scanAndAnalyzeBtn.disabled = isLoading;
+            function hideAllContent() {
+                welcomeMessage.classList.remove('hidden');
+                resultsWrapper.classList.add('hidden');
+                reportHeader.classList.add('hidden');
+                dashboardSection.classList.add('hidden');
+                chartsSection.classList.add('hidden');
+                resultsSection.classList.add('hidden');
             }
             function escapeHTML(str) {
                  if (typeof str !== 'string') return '';
                  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
             }
-
-            async function runFullAnalysis() {
+            
+            // --- Main Analysis Function ---
+            async function runAnalysis(type) {
                 hideError();
-                setScanLoading(true);
-                resultsSection.classList.add('hidden');
-                resultsContainer.innerHTML = '';
-                paginationControls.classList.add('hidden');
-                lastFullResults = {};
-                paginatedResults = [];
-                currentPage = 1;
-
-                const folderPath = folderPathInput.value;
-                if (!folderPath) { showError('Please enter a folder path.'); setScanLoading(false); return; }
-
-                let allFiles = [];
-                let serverBasePath = '';
-                try {
-                    const scanResponse = await fetch('/scan_folder', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ folder_path: folderPath })
-                    });
-                    const scanData = await scanResponse.json();
-                    if (!scanResponse.ok) throw new Error(scanData.error || 'Unknown server error during scan');
-                    allFiles = scanData.files || [];
-                    serverBasePath = scanData.base_path || '';
-                    if (allFiles.length === 0) { showError('No .md files found in that directory.'); setScanLoading(false); return; }
-                } catch (err) { showError(err.message); setScanLoading(false); return; }
-
-                setScanLoading(false);
-                setAnalyzeLoading(true);
+                hideAllContent();
+                setLoading(true, 'Scanning files...');
+                lastReportData = {};
                 
-                const options = {
-                    check_broken_links: document.getElementById('check-broken-links').checked,
-                    check_specific_url: document.getElementById('check-specific-url').checked,
-                    specific_url: document.getElementById('specific-url').value,
-                    check_untagged_blocks: document.getElementById('check-untagged-blocks').checked,
-                    check_find_text: document.getElementById('check-find-text').checked,
-                    text_to_find: document.getElementById('text-to-find').value,
-                };
+                const folderPath = document.getElementById('folder-path').value;
+                if (!folderPath) { showError('Please enter a folder path.'); setLoading(false); return; }
+                lastFolderPath = folderPath; // Store for CSV
                 
-                if (!options.check_broken_links && !options.check_specific_url && !options.check_untagged_blocks && !options.check_find_text) {
-                    showError("Please select at least one analysis option.");
-                    setAnalyzeLoading(false);
-                    return;
+                let task = '';
+                let options = {};
+                let endpoint = '';
+                let loadingMessage = 'Running analysis...';
+
+                if (type === 'scan') {
+                    task = scanTaskSelect.value;
+                    options = {
+                        specific_url: document.getElementById('scan-option-input').value,
+                        text_to_find: document.getElementById('scan-option-input').value
+                    };
+                    endpoint = '/run_scan';
+                    if (task === 'link_audit') {
+                        loadingMessage = 'Running link audit (this may take several minutes)...';
+                    }
+                } else { // type === 'analytics'
+                    task = 'full_analytics';
+                    endpoint = '/get_analytics';
+                    loadingMessage = 'Running instant analytics...';
                 }
 
+                setLoading(true, loadingMessage);
+
                 try {
-                    const analyzeResponse = await fetch('/analyze_files', {
+                    const response = await fetch(endpoint, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ files: allFiles, options: options, base_path: serverBasePath })
+                        body: JSON.stringify({ 
+                            folder_path: folderPath, 
+                            task: task, 
+                            options: options 
+                        })
                     });
-                    const analyzeData = await analyzeResponse.json();
-                    if (!analyzeResponse.ok) throw new Error(analyzeData.error || 'Unknown server error');
-                    
-                    lastFullResults = analyzeData.results;
-                    processResults(lastFullResults, options);
-                    resultsSection.classList.remove('hidden');
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Analysis failed');
+
+                    lastReportData = data;
+                    lastReportData.task = task; // Store task for CSV
+                    renderReport(data, task);
+
                 } catch (err) {
                     showError(err.message);
                 } finally {
-                    setAnalyzeLoading(false);
+                    setLoading(false);
                 }
             }
-
-            function processResults(results, options) {
-                paginatedResults = [];
-                for (const [file, result] of Object.entries(results)) {
-                    let hasFinding = false;
-                    if (result.error) hasFinding = true;
-                    if (options.check_broken_links && result.broken_links?.length) hasFinding = true;
-                    if (options.check_specific_url && result.specific_url_links?.length) hasFinding = true;
-                    if (options.check_untagged_blocks && result.untagged_blocks?.length) hasFinding = true;
-                    if (options.check_find_text && result.found_text?.length) hasFinding = true;
-                    if (hasFinding) paginatedResults.push({ file, result });
-                }
-                if (paginatedResults.length === 0) {
-                    resultsContainer.innerHTML = '<p class="text-lg text-green-600 font-medium text-center">Scan complete. No issues found.</p>';
-                    paginationControls.classList.add('hidden');
-                } else {
-                    currentPage = 1;
-                    displayPage(currentPage);
-                    paginationControls.classList.remove('hidden');
-                }
-            }
-
-            function displayPage(page) {
-                currentPage = page;
-                resultsContainer.innerHTML = ''; 
-                const totalPages = Math.ceil(paginatedResults.length / resultsPerPage);
-                if (totalPages === 0) { paginationControls.classList.add('hidden'); return; }
+            
+            // --- RENDER FUNCTIONS ---
+            function renderReport(data, task) {
+                // Clear old content
+                dashboardSection.innerHTML = '';
+                chartsSection.innerHTML = '';
+                resultsContainer.innerHTML = '';
                 
-                const startIndex = (page - 1) * resultsPerPage;
-                const endIndex = startIndex + resultsPerPage;
-                const pageItems = paginatedResults.slice(startIndex, endIndex);
+                // Show containers
+                resultsWrapper.classList.remove('hidden');
+                reportHeader.classList.remove('hidden');
+                dashboardSection.classList.remove('hidden');
+                chartsSection.classList.remove('hidden');
+                resultsSection.classList.remove('hidden');
+                
+                // --- Render based on which tab we're on ---
+                if (task === 'full_analytics') {
+                    renderFullAnalyticsReport(data);
+                } else if (task === 'code_blocks') {
+                    renderCodeBlockReport(data);
+                } else if (task === 'specific_url') {
+                    renderSpecificUrlReport(data);
+                } else if (task === 'find_text') {
+                    renderFindTextReport(data);
+                } else if (task === 'link_audit') {
+                    renderBrokenLinkReport(data);
+                }
+            }
+            
+            function createKpiCard(title, value, subtext = '', id = null) {
+                let downloadHTML = id ? `<div class="kpi-download" id="csv-${id}">Download List</div>` : '';
+                dashboardSection.innerHTML += `
+                    <div class="kpi-card">
+                        <div class="kpi-title">${title}</div>
+                        <div class="kpi-value">${value}</div>
+                        ${subtext ? `<div class="kpi-subtext">${subtext}</div>` : ''}
+                        ${downloadHTML}
+                    </div>`;
+            }
 
-                const options = {
-                    check_broken_links: document.getElementById('check-broken-links').checked,
-                    check_specific_url: document.getElementById('check-specific-url').checked,
-                    check_untagged_blocks: document.getElementById('check-untagged-blocks').checked,
-                    check_find_text: document.getElementById('check-find-text').checked,
+            function createChart(canvasId, type, chartData, customOptions = {}) {
+                // Clear old chart if it exists
+                let chartInstance;
+                if (canvasId === 'code-blocks-chart') {
+                    if (codeBlocksChart) codeBlocksChart.destroy();
+                    chartInstance = codeBlocksChart;
+                } else if (canvasId === 'domain-chart') {
+                    if (domainChart) domainChart.destroy();
+                    chartInstance = domainChart;
+                } else if (canvasId === 'status-chart') {
+                    if (statusChart) statusChart.destroy();
+                    chartInstance = statusChart;
+                }
+
+                // Create new chart
+                if (!chartsSection.querySelector(`#${canvasId}`)) {
+                    const canvas = document.createElement('canvas');
+                    canvas.id = canvasId;
+                    const container = document.createElement('div');
+                    container.className = 'bg-white p-5 rounded-lg shadow h-80';
+                    container.appendChild(canvas);
+                    chartsSection.appendChild(container);
+                }
+                
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                
+                const colors = ['#10b981', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#6b7280'];
+                const options = { responsive: true, maintainAspectRatio: false, plugins: { ...customOptions } };
+                const data = {
+                    labels: chartData.labels,
+                    datasets: [{ label: 'Count', data: chartData.data, backgroundColor: colors }]
                 };
 
-                for (const item of pageItems) {
-                    const { file, result } = item;
-                    const resultCard = document.createElement('div');
-                    resultCard.className = 'border border-gray-200 rounded-lg p-4';
-                    let contentHTML = `<h3 class="text-xl font-semibold text-gray-900">${escapeHTML(result.title) || 'No H1 Title Found'}</h3>
-                                     <p class="text-sm text-gray-500 font-mono mb-3">${escapeHTML(file)}</p>`;
-                    if (result.error) {
-                        contentHTML += `<p class="text-red-600"><strong>Error:</strong> ${escapeHTML(result.error)}</p>`;
-                    } else {
-                        contentHTML += '<ul class="list-disc list-inside mt-1 space-y-2">';
-                        if (options.check_broken_links && result.broken_links?.length) {
-                            contentHTML += '<li><strong>Broken Links:</strong><ul class="list-none list-inside ml-4 space-y-1">';
-                            contentHTML += result.broken_links.map(l => 
-                                `<li class="text-sm"><strong>Anchor:</strong> <span class="text-gray-700">${escapeHTML(l.text) || '<em>[No Anchor Text]</em>'}</span><br>
-                                 <strong class="text-red-700">URL:</strong> <span class="text-red-700 word-break-all">${escapeHTML(l.link)} (${escapeHTML(l.status.toString())})</span></li>`
-                            ).join('');
-                            contentHTML += '</ul></li>';
-                        }
-                        if (options.check_specific_url && result.specific_url_links?.length) {
-                            contentHTML += '<li><strong>Specific URL Links Found:</strong><ul class="list-none list-inside ml-4 space-y-1">';
-                            contentHTML += result.specific_url_links.map(l => 
-                                `<li class="text-sm"><strong>Anchor:</strong> <span class="text-gray-700">${escapeHTML(l.text) || '<em>[No Anchor Text]</em>'}</span><br>
-                                 <strong class="text-blue-700">URL:</strong> <span class="text-blue-700 word-break-all">${escapeHTML(l.link)}</span></li>`
-                            ).join('');
-                            contentHTML += '</ul></li>';
-                        }
-                        if (options.check_untagged_blocks && result.untagged_blocks?.length) {
-                            contentHTML += `<li><strong>Untagged Code Blocks on Lines:</strong> <span class="text-sm text-yellow-800">${result.untagged_blocks.join(', ')}</span></li>`;
-                        }
-                        if (options.check_find_text && result.found_text?.length) {
-                            contentHTML += '<li><strong>Found Text:</strong><ul class="list-none list-inside ml-4 space-y-1">';
-                            contentHTML += result.found_text.map(item => 
-                                `<li class="text-sm"><strong>Line ${item.line_num}:</strong> <span class="text-gray-700 bg-yellow-100 p-1 rounded">${escapeHTML(item.line_text)}</span></li>`
-                            ).join('');
-                            contentHTML += '</ul></li>';
-                        }
-                        contentHTML += '</ul>';
-                    }
-                    resultCard.innerHTML = contentHTML;
-                    resultsContainer.appendChild(resultCard);
+                if (canvasId === 'code-blocks-chart') codeBlocksChart = new Chart(ctx, { type, data, options });
+                else if (canvasId === 'domain-chart') domainChart = new Chart(ctx, { type, data, options });
+                else if (canvasId === 'status-chart') statusChart = new Chart(ctx, { type, data, options });
+            }
+            
+            // --- Report-Specific Renderers ---
+            
+            function renderCodeBlockReport(data) {
+                const { analytics, details } = data;
+                reportTitle.textContent = 'Code Block Analysis';
+                createKpiCard('Files Scanned', analytics.files_scanned);
+                createKpiCard('Files with Issues', analytics.files_with_issues);
+                createKpiCard('Total Code Blocks', analytics.total_blocks);
+                createKpiCard('Total Unmarked', analytics.total_untagged, `${analytics.total_tagged} Marked`);
+
+                if (analytics.total_blocks > 0) {
+                    createChart('code-blocks-chart', 'doughnut', {
+                        labels: ['Marked', 'Unmarked'], data: [analytics.total_tagged, analytics.total_untagged]
+                    }, { legend: { position: 'bottom' } });
                 }
                 
-                pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
-                prevPageBtn.disabled = (currentPage === 1);
-                nextPageBtn.disabled = (currentPage === totalPages);
+                if (details.length === 0) {
+                    resultsContainer.innerHTML = '<p class="text-gray-500">No files with unmarked code blocks found.</p>';
+                    return;
+                }
+                details.forEach(item => {
+                    resultsContainer.innerHTML += `
+                        <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                            <h3 class="text-lg font-semibold">${escapeHTML(item.title)}</h3>
+                            <p class="text-sm text-gray-500 font-mono mb-2">${escapeHTML(item.file)}</p>
+                            <ul class="list-disc list-inside">
+                                <li class="text-yellow-700"><strong>${item.untagged} Unmarked Block(s)</strong> on lines: ${item.untagged_lines.join(', ')}</li>
+                            </ul>
+                        </div>`;
+                });
             }
 
+            function renderSpecificUrlReport(data) {
+                const { details } = data;
+                reportTitle.textContent = 'Specific URL Report';
+                // Note: We need a better way to get files_scanned for reports
+                createKpiCard('Files with Link', details.length);
+
+                if (details.length === 0) {
+                    resultsContainer.innerHTML = '<p class="text-gray-500">No files with that specific URL found.</p>';
+                    return;
+                }
+                details.forEach(item => {
+                    let linksHtml = item.found_links.map(l => 
+                        `<li class="text-sm">
+                            <strong>Anchor:</strong> <span class="text-gray-700">${escapeHTML(l.text) || '<em>[No Anchor Text]</em>'}</span><br>
+                            <strong class="text-blue-700">URL:</strong> <span class="text-blue-700" style="word-break: break-all;">${escapeHTML(l.link)}</span>
+                         </li>`
+                    ).join('');
+                    resultsContainer.innerHTML += `
+                        <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                            <h3 class="text-lg font-semibold">${escapeHTML(item.title)}</h3>
+                            <p class="text-sm text-gray-500 font-mono mb-2">${escapeHTML(item.file)}</p>
+                            <ul class="list-none list-inside ml-4 space-y-1">${linksHtml}</ul>
+                        </div>`;
+                });
+            }
+            
+            function renderFindTextReport(data) {
+                const { details } = data;
+                reportTitle.textContent = 'Find Text Report';
+                createKpiCard('Files with Text', details.length);
+
+                if (details.length === 0) {
+                    resultsContainer.innerHTML = '<p class="text-gray-500">No files with that text found.</p>';
+                    return;
+                }
+                details.forEach(item => {
+                    let linesHtml = item.found_text.map(l => 
+                        `<li class="text-sm">
+                            <strong>Line ${l.line_num}:</strong> <span class="text-gray-700 bg-yellow-100 p-1 rounded">${escapeHTML(l.line_text)}</span>
+                         </li>`
+                    ).join('');
+                    resultsContainer.innerHTML += `
+                        <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                            <h3 class="text-lg font-semibold">${escapeHTML(item.title)}</h3>
+                            <p class="text-sm text-gray-500 font-mono mb-2">${escapeHTML(item.file)}</p>
+                            <ul class="list-none list-inside ml-4 space-y-1">${linesHtml}</ul>
+                        </div>`;
+                });
+            }
+
+            function renderBrokenLinkReport(data) {
+                const { analytics, details } = data;
+                reportTitle.textContent = 'Link Audit Report';
+                
+                const status = analytics.status_counts;
+                const totalBroken = (status['4xx'] || 0) + (status['5xx'] || 0) + (status['Timeout'] || 0) + (status['Connection Error'] || 0) + (status['Invalid URL'] || 0);
+                
+                createKpiCard('Links Checked', analytics.total_links_checked);
+                createKpiCard('Healthy (2xx)', status['2xx'] || 0);
+                createKpiCard('Redirects (3xx)', status['3xx'] || 0);
+                createKpiCard('Broken', totalBroken, '4xx, 5xx, or Timeout');
+
+                if (analytics.total_links_checked > 0) {
+                    createChart('status-chart', 'doughnut', {
+                        labels: Object.keys(status), data: Object.values(status)
+                    }, { legend: { position: 'bottom' } });
+                }
+                
+                if (details.length === 0) {
+                    resultsContainer.innerHTML = '<p class="text-gray-500">No files with external links were found to check.</p>';
+                    return;
+                }
+                details.forEach(item => {
+                    let linksHtml = item.links.map(l => {
+                        let color = 'text-green-700';
+                        if (l.status_category === '3xx') color = 'text-blue-700';
+                        if (l.status_category.match(/[45]xx|Timeout|Error|Invalid/)) color = 'text-red-700';
+                        
+                        return `<li class="text-sm">
+                                    <strong>Anchor:</strong> <span class="text-gray-700">${escapeHTML(l.text) || '<em>[No Anchor Text]</em>'}</span><br>
+                                    <strong class="${color}">[${l.status_code}]</strong> <span class="${color}" style="word-break: break-all;">${escapeHTML(l.link)}</span>
+                                 </li>`
+                    }).join('');
+                    resultsContainer.innerHTML += `
+                        <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                            <h3 class="text-lg font-semibold">${escapeHTML(item.title)}</h3>
+                            <p class="text-sm text-gray-500 font-mono mb-2">${escapeHTML(item.file)}</p>
+                            <ul class="list-none list-inside ml-4 space-y-1">${linksHtml}</ul>
+                        </div>`;
+                });
+            }
+            
+            function renderFullAnalyticsReport(data) {
+                const analytics = data;
+                reportTitle.textContent = 'Full Analytics Dashboard';
+                resultsSection.classList.add('hidden'); // No detailed list for this view
+                
+                createKpiCard('Files Scanned', analytics.files_scanned, null, 'files');
+                createKpiCard('Total Lines', analytics.total_lines);
+                createKpiCard('Code Blocks', analytics.code_blocks.total, `${analytics.code_blocks.untagged} Unmarked`, 'code');
+                createKpiCard('External Links', analytics.links.total_external, null, 'external');
+                createKpiCard('Internal Links', analytics.links.total_internal, `${analytics.links.total_internal_broken} Broken`, 'internal');
+                createKpiCard('Stub Pages', analytics.content.stubs, null, 'stubs');
+                createKpiCard('TODOs Found', analytics.content.todos, null, 'todos');
+                
+                if (analytics.code_blocks.total > 0) {
+                    createChart('code-blocks-chart', 'doughnut', {
+                        labels: ['Marked', 'Unmarked'], data: [analytics.code_blocks.tagged, analytics.code_blocks.untagged]
+                    }, { legend: { position: 'bottom' }, plugins: { title: { display: true, text: 'Code Blocks' } } });
+                }
+                
+                // Add download listeners for analytics
+                addCsvDownloadListeners(data);
+            }
+
+            // --- CSV EXPORT FUNCTION ---
             function downloadCSV() {
-                if (!lastFullResults || Object.keys(lastFullResults).length === 0) {
-                    alert("No results to export. Please run a scan first."); return;
+                if (lastReportData.task === 'full_analytics') {
+                    alert("Click the 'Download List' link on a specific KPI card to download its report.");
+                    return;
                 }
+                
+                const { details } = lastReportData;
+                const task = lastReportData.task;
+                if (!details) { alert("No detailed report to export."); return; }
+                
                 let csvContent = "data:text/csv;charset=utf-8,";
-                csvContent += "File,Title,IssueType,AnchorText,Details,LinkOrLine\n";
-                const escapeCSV = (str) => {
-                    let s = String(str || '');
-                    return `"${s.replace(/"/g, '""')}"`;
-                };
-                for (const [file, r] of Object.entries(lastFullResults)) {
-                    if (!r) continue;
-                    const title = escapeCSV(r.title);
-                    const fileE = escapeCSV(file);
-                    if (r.error) csvContent += `${fileE},${title},"Error","N/A",${escapeCSV(r.error)},""\n`;
-                    if (r.broken_links?.length) {
-                        r.broken_links.forEach(l => {
-                            if(l) csvContent += `${fileE},${title},"Broken Link",${escapeCSV(l.text)},${escapeCSV(l.status)},${escapeCSV(l.link)}\n`;
+                const escapeCSV = (str) => `"${(String(str) || '').replace(/"/g, '""')}"`;
+                let filename = `${task}_report.csv`;
+
+                if (task === 'code_blocks') {
+                    csvContent += "File,Title,TotalBlocks,Tagged,Untagged,UntaggedLines\n";
+                    details.forEach(r => {
+                        csvContent += `${escapeCSV(r.file)},${escapeCSV(r.title)},${r.total},${r.tagged},${r.untagged},"${r.untagged_lines.join(', ')}"\n`;
+                    });
+                } else if (task === 'specific_url') {
+                    csvContent += "File,Title,AnchorText,Link\n";
+                    details.forEach(r => {
+                        r.found_links.forEach(l => {
+                            csvContent += `${escapeCSV(r.file)},${escapeCSV(r.title)},${escapeCSV(l.text)},${escapeCSV(l.link)}\n`;
                         });
-                    }
-                    if (r.specific_url_links?.length) {
-                        r.specific_url_links.forEach(l => {
-                            if(l) csvContent += `${fileE},${title},"Specific URL",${escapeCSV(l.text)},${escapeCSV(l.link)},${escapeCSV(l.link)}\n`;
+                    });
+                } else if (task === 'find_text') {
+                    csvContent += "File,Title,LineNumber,LineText\n";
+                    details.forEach(r => {
+                        r.found_text.forEach(l => {
+                            csvContent += `${escapeCSV(r.file)},${escapeCSV(r.title)},${l.line_num},${escapeCSV(l.line_text)}\n`;
                         });
-                    }
-                    if (r.untagged_blocks?.length) {
-                        r.untagged_blocks.forEach(line => {
-                            if(line) csvContent += `${fileE},${title},"Untagged Code Block","N/A","Line",${escapeCSV(line)}\n`;
-                        });
-                    }
-                    if (r.found_text?.length) {
-                        r.found_text.forEach(item => {
-                            if (item) csvContent += `${fileE},${title},"Found Text","N/A",${escapeCSV(item.line_text)},${escapeCSV(item.line_num)}\n`;
-                        });
-                    }
+                    });
+                } else if (task === 'link_audit') {
+                     csvContent += "File,Title,AnchorText,Link,StatusCode,StatusCategory\n";
+                     details.forEach(r => {
+                         r.links.forEach(l => {
+                            csvContent += `${escapeCSV(r.file)},${escapeCSV(r.title)},${escapeCSV(l.text)},${escapeCSV(l.link)},${escapeCSV(l.status_code)},${escapeCSV(l.status_category)}\n`;
+                         });
+                     });
+                } else {
+                    alert("No export available for this report type.");
+                    return;
                 }
-                const encodedUri = encodeURI(csvContent);
+                
+                downloadFile(filename, csvContent);
+            }
+            
+            function addCsvDownloadListeners(data) {
+                // Hook up download buttons for the Analytics page
+                const { details } = data;
+                if (!details) return;
+
+                document.getElementById('csv-code')?.addEventListener('click', () => {
+                    let csvContent = "data:text/csv;charset=utf-8,";
+                    csvContent += "File,Title,UntaggedCount\n";
+                    const escapeCSV = (str) => `"${(String(str) || '').replace(/"/g, '""')}"`;
+                    details.code_blocks.forEach(r => csvContent += `${escapeCSV(r.file)},${escapeCSV(r.title)},${r.untagged}\n`);
+                    downloadFile('code_blocks_report.csv', csvContent);
+                });
+                
+                document.getElementById('csv-external')?.addEventListener('click', () => {
+                    let csvContent = "data:text/csv;charset=utf-8,";
+                    csvContent += "File,Title,AnchorText,Domain,Link\n";
+                    const escapeCSV = (str) => `"${(String(str) || '').replace(/"/g, '""')}"`;
+                    details.external_links.forEach(l => csvContent += `${escapeCSV(l.file)},${escapeCSV(l.title)},${escapeCSV(l.text)},${escapeCSV(l.domain)},${escapeCSV(l.link)}\n`);
+                    downloadFile('external_links_report.csv', csvContent);
+                });
+                
+                // Add more for stubs, todos, etc.
+                 document.getElementById('csv-internal')?.addEventListener('click', () => {
+                    let csvContent = "data:text/csv;charset=utf-8,";
+                    csvContent += "File,Title,Link,Status\n";
+                    const escapeCSV = (str) => `"${(String(str) || '').replace(/"/g, '""')}"`;
+                    details.broken_internal.forEach(l => csvContent += `${escapeCSV(l.file)},${escapeCSV(l.title)},${escapeCSV(l.link)},${escapeCSV(l.status)}\n`);
+                    downloadFile('broken_internal_links_report.csv', csvContent);
+                });
+                document.getElementById('csv-stubs')?.addEventListener('click', () => {
+                    let csvContent = "data:text/csv;charset=utf-8,";
+                    csvContent += "File,Title\n";
+                    const escapeCSV = (str) => `"${(String(str) || '').replace(/"/g, '""')}"`;
+                    details.stubs.forEach(r => csvContent += `${escapeCSV(r.file)},${escapeCSV(r.title)}\n`);
+                    downloadFile('stub_pages_report.csv', csvContent);
+                });
+                 document.getElementById('csv-todos')?.addEventListener('click', () => {
+                    let csvContent = "data:text/csv;charset=utf-8,";
+                    csvContent += "File,Title,Count\n";
+                    const escapeCSV = (str) => `"${(String(str) || '').replace(/"/g, '""')}"`;
+                    details.todos.forEach(r => csvContent += `${escapeCSV(r.file)},${escapeCSV(r.title)},${r.count}\n`);
+                    downloadFile('todos_report.csv', csvContent);
+                });
+            }
+            
+            function downloadFile(filename, content) {
+                const encodedUri = encodeURI(content);
                 const link = document.createElement("a");
                 link.setAttribute("href", encodedUri);
-                link.setAttribute("download", "markdown_report.csv");
+                link.setAttribute("download", filename);
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
             }
-
-            scanAndAnalyzeBtn.addEventListener('click', runFullAnalysis);
-            downloadCsvBtn.addEventListener('click', downloadCSV);
-            prevPageBtn.addEventListener('click', () => { if (currentPage > 1) displayPage(currentPage - 1); });
-            nextPageBtn.addEventListener('click', () => {
-                const totalPages = Math.ceil(paginatedResults.length / resultsPerPage);
-                if (currentPage < totalPages) displayPage(currentPage + 1);
-            });
         });
     </script>
 </body>
