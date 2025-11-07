@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale-1.0">
     <title>Markdown Analyzer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -11,8 +11,14 @@
         .toggle-checkbox:checked + .toggle-label { @apply: bg-blue-600; }
         .toggle-checkbox { transition: all 0.2s ease; }
         .toggle-label { transition: all 0.2s ease; }
-        .page-btn { @apply px-4 py-2 mx-1 border border-gray-300 rounded-md bg-white text-sm font-medium text-gray-700 hover:bg-gray-50; }
-        .page-btn:disabled { @apply bg-gray-100 text-gray-400 cursor-not-allowed; }
+        
+        /* Styles for pagination buttons */
+        .page-btn {
+            @apply px-4 py-2 mx-1 border border-gray-300 rounded-md bg-white text-sm font-medium text-gray-700 hover:bg-gray-50;
+        }
+        .page-btn:disabled {
+            @apply bg-gray-100 text-gray-400 cursor-not-allowed;
+        }
         /* Style for breaking long links */
         .word-break-all { word-break: break-all; }
     </style>
@@ -60,7 +66,7 @@
                 <input type="text" id="folder-path" class="flex-grow w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="/scan_data/my_project">
             </div>
             
-            <!-- Analysis Options (The "OG" 3) -->
+            <!-- Analysis Options -->
             <div class="mt-6">
                 <h3 class="text-lg font-medium mb-3">Analysis Options</h3>
                 <div class="space-y-4">
@@ -90,6 +96,17 @@
                             <input type="checkbox" id="check-untagged-blocks" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
                             <label for="check-untagged-blocks" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
                         </div>
+                    </div>
+                    <!-- NEW: Option 4: Find Text -->
+                    <div class="p-3 bg-gray-50 rounded-lg">
+                        <div class="flex items-center justify-between">
+                            <span class="font-medium text-gray-700">Find specific text (case-insensitive)</span>
+                            <div class="relative inline-block w-10 mr-2 align-middle select-none">
+                                <input type="checkbox" id="check-find-text" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
+                                <label for="check-find-text" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                            </div>
+                        </div>
+                        <input type="text" id="text-to-find" class="w-full mt-2 px-3 py-2 border border-gray-300 rounded-md" placeholder="Enter text to find...">
                     </div>
                 </div>
             </div>
@@ -162,7 +179,6 @@
                 analyzeLoading.classList.toggle('hidden', !isLoading);
                 scanAndAnalyzeBtn.disabled = isLoading;
             }
-            // UPDATED: Simple escape function
             function escapeHTML(str) {
                  if (typeof str !== 'string') return '';
                  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -219,9 +235,12 @@
                     check_specific_url: document.getElementById('check-specific-url').checked,
                     specific_url: document.getElementById('specific-url').value,
                     check_untagged_blocks: document.getElementById('check-untagged-blocks').checked,
+                    // NEW: Add the text find option
+                    check_find_text: document.getElementById('check-find-text').checked,
+                    text_to_find: document.getElementById('text-to-find').value,
                 };
                 
-                if (!options.check_broken_links && !options.check_specific_url && !options.check_untagged_blocks) {
+                if (!options.check_broken_links && !options.check_specific_url && !options.check_untagged_blocks && !options.check_find_text) {
                     showError("Please select at least one analysis option.");
                     setAnalyzeLoading(false);
                     return;
@@ -260,6 +279,7 @@
                     if (options.check_broken_links && result.broken_links?.length) hasFinding = true;
                     if (options.check_specific_url && result.specific_url_links?.length) hasFinding = true;
                     if (options.check_untagged_blocks && result.untagged_blocks?.length) hasFinding = true;
+                    if (options.check_find_text && result.found_text?.length) hasFinding = true; // NEW
 
                     if (hasFinding) {
                         paginatedResults.push({ file, result });
@@ -276,7 +296,7 @@
                 }
             }
 
-            // --- Display Page Function (UPDATED) ---
+            // --- Display Page Function ---
             function displayPage(page) {
                 currentPage = page;
                 resultsContainer.innerHTML = ''; // Clear current page
@@ -295,6 +315,7 @@
                     check_broken_links: document.getElementById('check-broken-links').checked,
                     check_specific_url: document.getElementById('check-specific-url').checked,
                     check_untagged_blocks: document.getElementById('check-untagged-blocks').checked,
+                    check_find_text: document.getElementById('check-find-text').checked, // NEW
                 };
 
                 for (const item of pageItems) {
@@ -310,7 +331,6 @@
                     } else {
                         contentHTML += '<ul class="list-disc list-inside mt-1 space-y-2">';
                         
-                        // --- FIX: Added fallbacks and removed truncate ---
                         if (options.check_broken_links && result.broken_links?.length) {
                             contentHTML += '<li><strong>Broken Links:</strong><ul class="list-none list-inside ml-4 space-y-1">';
                             contentHTML += result.broken_links.map(l => 
@@ -332,10 +352,20 @@
                             ).join('');
                             contentHTML += '</ul></li>';
                         }
-                        // --- END FIX ---
 
                         if (options.check_untagged_blocks && result.untagged_blocks?.length) {
                             contentHTML += `<li><strong>Untagged Code Blocks on Lines:</strong> <span class="text-sm text-yellow-800">${result.untagged_blocks.join(', ')}</span></li>`;
+                        }
+                        
+                        // NEW: Render found text
+                        if (options.check_find_text && result.found_text?.length) {
+                            contentHTML += '<li><strong>Found Text:</strong><ul class="list-none list-inside ml-4 space-y-1">';
+                            contentHTML += result.found_text.map(item => 
+                                `<li class="text-sm">
+                                    <strong>Line ${item.line_num}:</strong> <span class="text-gray-700 bg-yellow-100 p-1 rounded">${escapeHTML(item.line_text)}</span>
+                                 </li>`
+                            ).join('');
+                            contentHTML += '</ul></li>';
                         }
                         
                         contentHTML += '</ul>';
@@ -350,7 +380,7 @@
                 nextPageBtn.disabled = (currentPage === totalPages);
             }
 
-            // --- CSV EXPORT FUNCTION (Unchanged) ---
+            // --- CSV EXPORT FUNCTION ---
             function downloadCSV() {
                 if (Object.keys(lastFullResults).length === 0) {
                     alert("No results to export. Please run a scan first."); return;
@@ -375,6 +405,12 @@
                     if (r.untagged_blocks?.length) {
                         r.untagged_blocks.forEach(line => {
                             csvContent += `${fileE},${title},"Untagged Code Block","N/A","Line",${escapeCSV(line)}\n`;
+                        });
+                    }
+                    // NEW: Add found text to CSV
+                    if (r.found_text?.length) {
+                        r.found_text.forEach(item => {
+                            csvContent += `${fileE},${title},"Found Text","N/A",${escapeCSV(item.line_text)},${escapeCSV(item.line_num)}\n`;
                         });
                     }
                 }

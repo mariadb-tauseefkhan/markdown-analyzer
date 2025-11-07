@@ -74,17 +74,13 @@ def analyze_single_file(full_path, options):
         result['title'] = 'No H1 Title Found'
     
     # --- Find all HTTP/HTTPS links WITH ANCHOR TEXT ---
-    # NEW REGEX: Captures text in [text] and link in (link)
     http_links_with_anchor = re.findall(r'\[(.*?)\]\((https?://[^\)]+)\)', content)
 
     # --- 1. Check for Broken Links ---
     if options.get('check_broken_links'):
         links_to_check = [url for text, url in http_links_with_anchor]
         broken_link_results = check_links_threaded(links_to_check)
-        
-        # Create a map of all links to their *first* found anchor text
         link_to_text_map = {url: text for text, url in http_links_with_anchor}
-        
         broken_links_with_anchor = []
         for b in broken_link_results:
             link = b['link']
@@ -121,6 +117,22 @@ def analyze_single_file(full_path, options):
                 else:
                     in_code_block = False
         result['untagged_blocks'] = untagged
+
+    # --- 4. NEW: Find Specific Text ---
+    if options.get('check_find_text'):
+        text_to_find = options.get('text_to_find', '').strip()
+        found_lines = []
+        if text_to_find:
+            # We will search case-insensitive
+            text_lower = text_to_find.lower()
+            lines = content.split('\n')
+            for i, line in enumerate(lines, 1):
+                if text_lower in line.lower():
+                    found_lines.append({
+                        'line_num': i,
+                        'line_text': line.strip() # Send the whole line back
+                    })
+        result['found_text'] = found_lines
 
     return result
 
