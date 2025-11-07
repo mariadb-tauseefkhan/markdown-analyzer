@@ -54,7 +54,8 @@
             <div class="flex items-center space-x-4">
                 <a href="/api" target="_blank" class="btn-secondary py-2 px-3">API Docs</a>
                 <button id="refresh-analytics-btn" class="btn-primary py-2 px-3 flex items-center">
-                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    <svg id="refresh-icon" class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    <svg id="refresh-spinner" class="w-4 h-4 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                     Refresh Data
                 </button>
             </div>
@@ -73,7 +74,7 @@
         </div>
         
         <!-- Shared Folder Path Input -->
-        <div class="mb-6">
+        <div class="mb-8">
              <label for="folder-path" class="pro-label">Folder to Analyze</label>
              <input type="text" id="folder-path" class="pro-input font-mono" value="/scan_data/mariadb-cloud">
         </div>
@@ -98,34 +99,35 @@
             <h2 class="text-2xl font-bold text-slate-900 mb-4">Report Generator</h2>
             <div class="pro-card">
                 <h3 class="text-lg font-semibold text-slate-900">Generate Detailed Report</h3>
-                <p class="text-sm text-slate-500 mt-1 mb-6">Select a report type and configure its options to generate a detailed analysis.</p>
+                <p class="text-sm text-slate-500 mt-1 mb-6">Select a report type and configure options to generate detailed analysis.</p>
 
-                <!-- "Tabs" for selecting report type -->
-                <div class="tabs-list" role="tablist">
-                    <button id="tab-code_blocks" class="tab-trigger tab-trigger-active" data-task="code_blocks">Code Blocks</button>
-                    <button id="tab-link_audit" class="tab-trigger" data-task="link_audit">Link Audit</button>
-                    <button id="tab-find_text" class="tab-trigger" data-task="find_text">Find Text</button>
-                    <button id="tab-specific_url" class="tab-trigger" data-task="specific_url">Find URL</button>
+                <!-- "Tabs" for selecting report type (matches screenshot) -->
+                <div class="border-b border-slate-200">
+                    <div class="tabs-list" role="tablist">
+                        <button id="tab-code_blocks" class="tab-trigger tab-trigger-active" data-task="code_blocks">Code Blocks</button>
+                        <button id="tab-link_audit" class="tab-trigger" data-task="link_audit">Link Audit</button>
+                        <button id="tab-find_text" class="tab-trigger" data-task="find_text">Find Text</button>
+                        <button id="tab-specific_url" class="tab-trigger" data-task="specific_url">Find URL</button>
+                    </div>
                 </div>
 
                 <!-- Dynamic Options Area -->
-                <div class="mt-6 pt-6 border-t border-slate-100">
+                <div class="mt-6">
                     <!-- Options for Code Blocks -->
                     <div id="options-code_blocks" class="space-y-4">
-                        <p class="text-sm text-slate-600">Find all untagged blocks or search for blocks with a specific language tag.</p>
-                        <div class="flex items-center">
-                            <input type="radio" id="code-task-untagged" name="code-task" value="untagged" checked class="text-indigo-600 focus:ring-indigo-500">
-                            <label for="code-task-untagged" class="ml-3 text-sm font-medium text-slate-700">Find all untagged blocks (```)</label>
-                        </div>
-                        <div class="flex items-center">
-                            <input type="radio" id="code-task-specific" name="code-task" value="specific_language" class="text-indigo-600 focus:ring-indigo-500">
-                            <label for="code-task-specific" class="ml-3 text-sm font-medium text-slate-700 mr-4">Find blocks tagged as:</label>
-                            <input type="text" id="code-block-lang" class="pro-input w-48 py-1.5" placeholder="e.g., bash, sql, json">
+                        <label for="code-block-mode" class="pro-label">Analysis Mode</label>
+                        <select id="code-block-mode" class="pro-select">
+                            <option value="untagged">Find Untagged Blocks</option>
+                            <option value="specific_language">Find by Language Tag</option>
+                        </select>
+                        <div id="code-block-lang-input" class="hidden">
+                            <label for="code-block-lang" class="pro-label">Language Tag</label>
+                            <input type="text" id="code-block-lang" class="pro-input" placeholder="e.g., bash, sql, json">
                         </div>
                     </div>
                     <!-- Options for Link Audit -->
                     <div id="options-link_audit" class="space-y-4 hidden">
-                         <p class="text-sm text-slate-600">Run a full audit of all external links. Select which HTTP status codes to include in the report. <strong class="text-rose-600">Warning: This scan is slow.</strong></p>
+                         <label class="pro-label">Select HTTP Status Categories</label>
                         <div class="flex flex-wrap gap-3">
                             <label class="inline-flex items-center bg-white px-3 py-1.5 rounded-md border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 transition-colors"><input type="checkbox" class="link-status-check mr-2 text-indigo-600 focus:ring-indigo-500 rounded" value="2xx"><span class="text-sm font-medium text-slate-700">2xx (Healthy)</span></label>
                             <label class="inline-flex items-center bg-white px-3 py-1.5 rounded-md border border-slate-200 shadow-sm cursor-pointer hover:border-indigo-300 transition-colors"><input type="checkbox" class="link-status-check mr-2 text-indigo-600 focus:ring-indigo-500 rounded" value="3xx"><span class="text-sm font-medium text-slate-700">3xx (Redirects)</span></label>
@@ -136,23 +138,21 @@
                     </div>
                     <!-- Options for Find Text -->
                     <div id="options-find_text" class="space-y-2 hidden">
-                        <p class="text-sm text-slate-600">Case-insensitive search for any text string.</p>
-                         <label for="find-text-input" class="pro-label">Search Term</label>
+                         <label for="find-text-input" class="pro-label">Search Text</label>
                          <input type="text" id="find-text-input" class="pro-input" placeholder="Enter text to search for...">
                     </div>
                     <!-- Options for Specific URL -->
                     <div id="options-specific_url" class="space-y-2 hidden">
-                        <p class="text-sm text-slate-600">Find all links that start with a specific URL or domain.</p>
-                         <label for="specific-url-input" class="pro-label">URL Pattern</label>
-                         <input type="text" id="specific-url-input" class="pro-input" placeholder="e.g., [https://mariadb.com/kb](https://mariadb.com/kb)">
+                         <label for="specific-url-input" class="pro-label">Search URL</Fabel>
+                         <input type="text" id="specific-url-input" class="pro-input" placeholder="Enter URL to search for...">
                     </div>
                 </div>
 
                 <!-- Scan Button -->
                 <div class="mt-6 pt-6 border-t border-slate-100 flex justify-end">
-                    <button id="scan-btn" class="btn-primary flex items-center">
+                    <button id="scan-btn" class="btn-primary w-full md:w-auto flex items-center justify-center">
                         <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        Run Scan
+                        <span id="scan-btn-text">Run Code Block Analysis</span>
                     </button>
                 </div>
             </div>
@@ -180,7 +180,7 @@
 
             <!-- Detailed Results List -->
             <div id="results-section" class="pro-card">
-                <h3 class="text-lg font-bold text-slate-900 mb-6 pb-4 border-b border-slate-100">Detailed Findings</h3>
+                <h3 id="report-title-detail" class="text-lg font-bold text-slate-900 mb-6 pb-4 border-b border-slate-100">Detailed Findings</h3>
                 <div id="results-container" class="space-y-4">
                      <!-- File result cards generated here -->
                 </div>
@@ -201,6 +201,7 @@
         let paginatedResults = [];
         let currentPage = 1;
         const resultsPerPage = 20;
+        let activeTask = 'code_blocks'; // Default task
 
         // --- DOM Elements ---
         let DOMElements;
@@ -214,9 +215,11 @@
                 loadingText: document.getElementById('loading-text'),
                 folderPathInput: document.getElementById('folder-path'),
                 resultsWrapper: document.getElementById('results-wrapper'),
-                // Analytics Dashboard
+                // Analytics
                 analyticsKpiGrid: document.getElementById('analytics-kpi-grid'),
                 refreshAnalyticsBtn: document.getElementById('refresh-analytics-btn'),
+                refreshIcon: document.getElementById('refresh-icon'),
+                refreshSpinner: document.getElementById('refresh-spinner'),
                 analyticsLoading: document.getElementById('analytics-loading'),
                 // Scan Tabs
                 tabButtons: document.querySelectorAll('.tab-trigger'),
@@ -227,7 +230,10 @@
                     'specific_url': document.getElementById('options-specific_url')
                 },
                 scanBtn: document.getElementById('scan-btn'),
-                // Results Area
+                scanBtnText: document.getElementById('scan-btn-text'),
+                codeBlockMode: document.getElementById('code-block-mode'),
+                codeBlockLangInput: document.getElementById('code-block-lang-input'),
+                // Results
                 reportHeader: document.getElementById('report-header'),
                 reportTitle: document.getElementById('report-title'),
                 downloadCsvBtn: document.getElementById('download-csv-btn'),
@@ -237,11 +243,10 @@
                 paginationControls: document.getElementById('pagination-controls'),
                 prevPageBtn: document.getElementById('prev-page-btn'),
                 nextPageBtn: document.getElementById('next-page-btn'),
-                pageInfo: document.getElementById('page-info')
+                pageInfo: document.getElementById('page-info'),
             };
 
             // --- Tab Switching Logic (shadcn-style) ---
-            let activeTask = 'code_blocks';
             DOMElements.tabButtons.forEach(button => {
                 button.addEventListener('click', () => {
                     // Update active button
@@ -254,8 +259,13 @@
                     if (DOMElements.scanOptions[activeTask]) {
                         DOMElements.scanOptions[activeTask].classList.remove('hidden');
                     }
-                    DOMElements.scanBtn.textContent = `Run ${button.textContent} Scan`;
+                    DOMElements.scanBtnText.textContent = `Run ${button.textContent} Analysis`;
                 });
+            });
+
+            // --- Dynamic Scan Options ---
+            DOMElements.codeBlockMode?.addEventListener('change', (e) => {
+                DOMElements.codeBlockLangInput.classList.toggle('hidden', e.target.value !== 'specific_language');
             });
 
             // --- Event Listeners ---
@@ -276,21 +286,21 @@
                 DOMElements.loadingText.textContent = text;
                 DOMElements.scanBtn.disabled = isLoading;
                 DOMElements.refreshAnalyticsBtn.disabled = isLoading;
-                if (isLoading) {
-                    DOMElements.resultsWrapper.classList.add('hidden');
-                }
+                if (isLoading) DOMElements.resultsWrapper.classList.add('hidden');
             }
             function escapeHTML(str) {
                  if (typeof str !== 'string') return '';
                  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
             }
             
-            // --- Analytics Dashboard (Your new feature) ---
+            // --- Analytics Dashboard ---
             async function loadAnalyticsDashboard() {
                 hideError(); 
                 DOMElements.analyticsKpiGrid.innerHTML = '';
                 DOMElements.analyticsLoading.classList.remove('hidden');
                 DOMElements.refreshAnalyticsBtn.disabled = true;
+                DOMElements.refreshIcon.classList.add('hidden');
+                DOMElements.refreshSpinner.classList.remove('hidden');
                 
                 const folderPath = DOMElements.folderPathInput.value;
                 if (!folderPath) { showError('Please enter a folder path.'); return; }
@@ -307,6 +317,8 @@
                 finally { 
                     DOMElements.analyticsLoading.classList.add('hidden');
                     DOMElements.refreshAnalyticsBtn.disabled = false;
+                    DOMElements.refreshIcon.classList.remove('hidden');
+                    DOMElements.refreshSpinner.classList.add('hidden');
                 }
             }
             
@@ -342,16 +354,14 @@
             }
             
             function addAnalyticsCsvListeners() {
-                // Hook up download buttons for the Analytics page
                 document.getElementById('csv-analytics-code')?.addEventListener('click', () => {
-                    // We re-run the 'code_blocks' scan to get the data, then trigger download
                     setLoading(true, "Generating untagged code block report...");
-                    runScan(true, { // `true` forces it to be a scan
+                    runScan(true, {
                         task: 'code_blocks',
                         options: { code_block_task: 'untagged' }
                     }).then(() => {
                         setLoading(false);
-                        downloadCSV(); // This will download the report we just ran
+                        downloadCSV();
                     });
                 });
             }
@@ -641,7 +651,11 @@
                         options: { code_block_task: 'untagged' }
                     }).then(() => {
                         setLoading(false);
-                        downloadCSV(); // This will download the report we just ran
+                        if(lastReportData.details && lastReportData.details.length > 0) {
+                            downloadCSV(); // This will download the report we just ran
+                        } else {
+                            showError("No untagged code blocks found to export.");
+                        }
                     });
                 });
             }
