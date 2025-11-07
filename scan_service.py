@@ -28,31 +28,47 @@ def run_scan():
         content, title, error = read_file_content(full_path)
         if error: continue
 
-        # --- Task 1: Untagged Code Blocks ---
+        # --- Task 1: Code Block Analysis ---
         if task == 'code_blocks':
+            task_type = options.get('code_block_task', 'untagged')
             all_blocks = re.findall(r'^```(.*)$', content, re.MULTILINE)
             if not all_blocks: continue
             
-            tagged_count = sum(1 for lang in all_blocks if lang.strip())
-            untagged_count = len(all_blocks) - tagged_count
+            if task_type == 'untagged':
+                untagged_count = sum(1 for lang in all_blocks if not lang.strip())
+                if untagged_count > 0:
+                    untagged_lines = []
+                    in_code_block = False
+                    for i, line in enumerate(content.split('\n'), 1):
+                        if line.strip().startswith('```'):
+                            if not in_code_block:
+                                in_code_block = True
+                                if line.strip() == '```': 
+                                    untagged_lines.append(i)
+                            else:
+                                in_code_block = False
+                    
+                    detailed_results.append({
+                        'file': rel_file, 'title': title, 'type': 'untagged',
+                        'count': untagged_count,
+                        'lines': [line for i, line in enumerate(untagged_lines) if i % 2 == 0] # Only get opening fences
+                    })
             
-            if untagged_count > 0:
-                untagged_lines = []
-                in_code_block = False
-                for i, line in enumerate(content.split('\n'), 1):
-                    if line.strip().startswith('```'):
-                        if not in_code_block:
-                            in_code_block = True
-                            if line.strip() == '```': 
-                                untagged_lines.append(i)
-                        else:
-                            in_code_block = False
+            elif task_type == 'specific_language':
+                lang_to_find = options.get('code_block_lang', '').strip().lower()
+                if not lang_to_find: continue
                 
-                detailed_results.append({
-                    'file': rel_file, 'title': title, 'total': len(all_blocks),
-                    'tagged': tagged_count, 'untagged': untagged_count,
-                    'untagged_lines': [line for i, line in enumerate(untagged_lines) if i % 2 == 0]
-                })
+                found_lang_lines = []
+                for i, line in enumerate(content.split('\n'), 1):
+                    if line.strip().lower() == ('```' + lang_to_find):
+                        found_lang_lines.append(i)
+                
+                if found_lang_lines:
+                    detailed_results.append({
+                        'file': rel_file, 'title': title, 'type': lang_to_find,
+                        'count': len(found_lang_lines),
+                        'lines': found_lang_lines
+                    })
 
         # --- Task 2: Specific URL ---
         elif task == 'specific_url':

@@ -66,7 +66,7 @@ def run_analytics():
         todos = re.findall(r'(TODO|FIXME|XXX):?', content, re.IGNORECASE)
         analytics['content']['todos'] += len(todos)
             
-    return jsonify(analytics)
+    return jsonify({'analytics': analytics})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001)

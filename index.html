@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Markdown Analytics Suite</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+    <script src="[https://cdn.jsdelivr.net/npm/chart.js](https://cdn.jsdelivr.net/npm/chart.js)"></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
         .tab-button { @apply px-4 py-2 font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 hover:border-gray-300; }
@@ -15,6 +15,11 @@
         .kpi-value { @apply text-3xl font-bold text-gray-900 mt-1; }
         .kpi-subtext { @apply text-xs text-gray-400; }
         .kpi-download { @apply text-xs text-blue-600 hover:underline cursor-pointer mt-2; }
+        .toggle-checkbox:checked + .toggle-label { @apply bg-blue-600; }
+        .toggle-checkbox { transition: all 0.2s ease; }
+        .toggle-label { display: block; width: 2.5rem; height: 1.5rem; background-color: #cbd5e0; border-radius: 9999px; cursor: pointer; transition: background-color 0.2s ease; position: relative; }
+        .toggle-label::before { content: ''; position: absolute; left: 0.25rem; top: 0.25rem; width: 1rem; height: 1rem; background-color: white; border-radius: 9999px; transition: transform 0.2s ease; }
+        .toggle-checkbox:checked + .toggle-label::before { transform: translateX(1rem); }
     </style>
     <script>
       tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter', 'sans-serif'] } } } }
@@ -22,89 +27,102 @@
 </head>
 <body class="bg-gray-100">
 
-    <!-- Header -->
-    <div class="bg-white shadow-sm border-b border-gray-200">
-        <div class="container mx-auto max-w-7xl px-8">
-            <div class="flex justify-between items-center py-4">
-                <h1 class="text-2xl font-bold text-gray-900">Markdown Analytics Suite</h1>
+    <div class="container mx-auto max-w-5xl p-4 md:p-8">
+        <header class="mb-8">
+            <div class="flex justify-between items-center">
+                <h1 class="text-4xl font-bold text-gray-800">Markdown Analytics Suite</h1>
             </div>
-            <!-- Tabs -->
-            <div class="flex">
-                <button id="tab-analytics" class="tab-button tab-button-active">Analytics</button>
-                <button id="tab-scan" class="tab-button">Scan</button>
-            </div>
-        </div>
-    </div>
+        </header>
 
-    <!-- Main Content -->
-    <div class="container mx-auto max-w-7xl p-8">
-        
-        <!-- Error Message Box -->
-        <div id="error-box" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative my-4" role="alert">
-            <strong class="font-bold">Error:</strong>
-            <span class="block sm:inline" id="error-message"></span>
-        </div>
-
-        <!-- Loading Spinner -->
+        <!-- Loading Spinner (hidden by default) -->
         <div id="loading-spinner" class="hidden text-center my-10">
             <div class="w-10 h-10 mx-auto border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
             <p id="loading-text" class="text-gray-600 mt-4">Running analysis...</p>
         </div>
 
-        <!-- Welcome Message -->
-        <div id="welcome-message" class="text-center text-gray-500">
-            <p class="text-lg">Select a tab and configure a scan to begin.</p>
+        <!-- Error Message Box -->
+        <div id="error-box" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative my-4" role="alert">
+            <strong class="font-bold">Error:</strong>
+            <span class="block sm:inline" id="error-message"></span>
         </div>
         
-        <!-- Shared Folder Path Input (Used by both tabs) -->
+        <!-- Shared Folder Path Input -->
         <div class="bg-white p-6 rounded-lg shadow-md mb-6">
              <label for="folder-path" class="block text-sm font-medium text-gray-700">Folder to Analyze</label>
              <input type="text" id="folder-path" class="mt-1 flex-grow w-full px-4 py-2 border border-gray-300 rounded-md" value="/scan_data/mariadb-cloud">
              <p class="text-xs text-gray-500 mt-1">This path must be within the server's mounted volume.</p>
         </div>
 
-        <!-- Content: ANALYTICS TAB -->
-        <div id="content-analytics">
-            <div class="bg-white p-6 rounded-lg shadow-md mb-6">
-                <h2 class="text-2xl font-semibold mb-4">Instant Analytics Dashboard</h2>
-                <p class="text-gray-600 mb-4">Click the button to get a high-level overview of the folder specified above. This is a fast scan and will not check for 404s.</p>
-                <div class="mt-6 text-right">
-                    <button id="analytics-btn" class="px-8 py-3 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700">
-                        Run Instant Analytics
-                    </button>
-                </div>
+        <!-- NEW: Analytics Dashboard -->
+        <div id="analytics-dashboard" class="mb-8">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-3xl font-bold">Analytics Dashboard</h2>
+                <button id="refresh-analytics-btn" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700">
+                    Refresh Data
+                </button>
+            </div>
+            <div id="analytics-kpi-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- KPI Cards will be loaded here by JS -->
             </div>
         </div>
 
-        <!-- Content: SCAN TAB -->
-        <div id="content-scan" class="hidden">
-            <div class="bg-white p-6 rounded-lg shadow-md mb-6">
-                <h2 class="text-2xl font-semibold mb-4">Run a Specific Report</h2>
-                <p class="text-gray-600 mb-4">Select a specific report to run on the folder specified above. This will generate a detailed list of all findings.</p>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Section 1: Scan and Analyze -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <div class="flex justify-between items-center">
+                 <h2 class="text-2xl font-semibold">Run a Detailed Report</h2>
+                 <button id="scan-btn" class="px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700">
+                    Run Scan
+                </button>
+            </div>
+            
+            <!-- Analysis Options -->
+            <div class="mt-6">
+                <label for="scan-task" class="block text-sm font-medium text-gray-700">Select Report Type</label>
+                <select id="scan-task" class="mt-1 flex-grow w-full px-4 py-2 border border-gray-300 rounded-md">
+                    <option value="code_blocks">Code Block Analysis</option>
+                    <option value="link_audit">Link Audit (2xx, 3xx, 4xx, etc)</option>
+                    <option value="specific_url">Find Links by URL</option>
+                    <option value="find_text">Find Specific Text</option>
+                </select>
+            </div>
+
+            <!-- Dynamic Options Area -->
+            <div id="scan-options-container" class="mt-4">
+                <!-- Options for Link Audit -->
+                <div id="link-audit-options" class="hidden mt-4 space-x-4">
+                    <span class="text-sm font-medium">Show statuses:</span>
+                    <label><input type="checkbox" class="link-status-check" value="2xx"> 2xx (Healthy)</label>
+                    <label><input type="checkbox" class="link-status-check" value="3xx"> 3xx (Redirects)</label>
+                    <label><input type="checkbox" class="link-status-check" value="4xx" checked> 4xx (Errors)</label>
+                    <label><input type="checkbox" class="link-status-check" value="5xx" checked> 5xx (Errors)</label>
+                    <label><input type="checkbox" class="link-status-check" value="Other" checked> Other (Timeouts)</label>
+                </div>
+                <!-- Options for Code Blocks -->
+                <div id="code-block-options" class="hidden mt-4 space-y-2">
                     <div>
-                        <label for="scan-task" class="block text-sm font-medium text-gray-700">Scan Type</label>
-                        <select id="scan-task" class="mt-1 flex-grow w-full px-4 py-2 border border-gray-300 rounded-md">
-                            <option value="code_blocks">Find Untagged Code Blocks</option>
-                            <option value="specific_url">Find Links by URL</option>
-                            <option value="find_text">Find Specific Text</option>
-                            <option value="link_audit">Run Full Link Audit (200, 301, 404s) (SLOW)</option>
-                        </select>
+                        <input type="radio" id="code-task-untagged" name="code-task" value="untagged" checked>
+                        <label for="code-task-untagged">Find all untagged code blocks</label>
                     </div>
-                    <div id="scan-options-container" class="hidden">
-                         <label id="scan-option-label" for="scan-option-input" class="block text-sm font-medium text-gray-700">Specific URL</label>
-                         <input type="text" id="scan-option-input" class="mt-1 flex-grow w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="https://example.com">
+                    <div>
+                        <input type="radio" id="code-task-specific" name="code-task" value="specific_language">
+                        <label for="code-task-specific">Find all blocks tagged as:</label>
+                        <input type="text" id="code-block-lang" class="ml-2 px-2 py-1 border border-gray-300 rounded-md text-sm" placeholder="e.g., bash, html">
                     </div>
                 </div>
-                <div class="mt-6 text-right">
-                    <button id="scan-btn" class="px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700">
-                        Run Scan
-                    </button>
+                <!-- Options for Specific URL -->
+                <div id="specific-url-options" class="hidden mt-4">
+                     <label for="specific-url-input" class="block text-sm font-medium text-gray-700">URL to find (e.g., [https://example.com](https://example.com))</label>
+                     <input type="text" id="specific-url-input" class="mt-1 flex-grow w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="[https://example.com](https://example.com)">
+                </div>
+                <!-- Options for Find Text -->
+                <div id="find-text-options" class="hidden mt-4">
+                     <label for="find-text-input" class="block text-sm font-medium text-gray-700">Text to find (case-insensitive)</label>
+                     <input type="text" id="find-text-input" class="mt-1 flex-grow w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Enter text...">
                 </div>
             </div>
         </div>
 
-        <!-- Content: RESULTS AREA (Shared) -->
+        <!-- Section 3: Results -->
         <div id="results-wrapper" class="hidden">
             <!-- Report Header -->
             <div id="report-header" class="flex justify-between items-center mb-4">
@@ -114,12 +132,12 @@
                 </button>
             </div>
             
-            <!-- Dashboard -->
+            <!-- Dashboard for Scan -->
             <div id="dashboard-section" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <!-- KPI Cards are dynamically generated -->
             </div>
             
-            <!-- Charts -->
+            <!-- Charts for Scan -->
             <div id="charts-section" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 <!-- Charts are dynamically generated -->
             </div>
@@ -139,27 +157,23 @@
         let codeBlocksChart, domainChart, statusChart;
         let lastReportData = {}; // Store the raw data for CSV export
         let currentReportTask = ''; // Stores the task for the CSV export
-        let lastFolderPath = ''; // Store the last folder path
 
         document.addEventListener('DOMContentLoaded', () => {
             // --- DOM Elements ---
             const scanBtn = document.getElementById('scan-btn');
-            const analyticsBtn = document.getElementById('analytics-btn');
+            const refreshAnalyticsBtn = document.getElementById('refresh-analytics-btn');
             const folderPathInput = document.getElementById('folder-path');
             const scanTaskSelect = document.getElementById('scan-task');
             
-            const scanOptionsContainer = document.getElementById('scan-options-container');
-            const scanOptionLabel = document.getElementById('scan-option-label');
-            const scanOptionInput = document.getElementById('scan-option-input');
-            
-            const tabScan = document.getElementById('tab-scan');
-            const tabAnalytics = document.getElementById('tab-analytics');
-            const contentScan = document.getElementById('content-scan');
-            const contentAnalytics = document.getElementById('content-analytics');
+            const scanOptions = {
+                'link_audit': document.getElementById('link-audit-options'),
+                'code_blocks': document.getElementById('code-block-options'),
+                'specific_url': document.getElementById('specific-url-options'),
+                'find_text': document.getElementById('find-text-options')
+            };
             
             const errorBox = document.getElementById('error-box');
             const errorMessage = document.getElementById('error-message');
-            const welcomeMessage = document.getElementById('welcome-message');
             const loadingSpinner = document.getElementById('loading-spinner');
             const loadingText = document.getElementById('loading-text');
             const downloadCsvBtn = document.getElementById('download-csv-btn');
@@ -171,43 +185,25 @@
             const chartsSection = document.getElementById('charts-section');
             const resultsSection = document.getElementById('results-section');
             const resultsContainer = document.getElementById('results-container');
-
-            // --- Tab Switching ---
-            tabScan.addEventListener('click', () => {
-                tabScan.classList.add('tab-button-active');
-                tabAnalytics.classList.remove('tab-button-active');
-                contentScan.classList.remove('hidden');
-                contentAnalytics.classList.add('hidden');
-                hideAllContent();
-            });
-            tabAnalytics.addEventListener('click', () => {
-                tabScan.classList.remove('tab-button-active');
-                tabAnalytics.classList.add('tab-button-active');
-                contentScan.classList.add('hidden');
-                contentAnalytics.classList.remove('hidden');
-                hideAllContent();
-            });
+            
+            const analyticsKpiGrid = document.getElementById('analytics-kpi-grid');
 
             // --- Dynamic Scan Options ---
-            scanTaskSelect.addEventListener('change', () => {
+            function toggleScanOptions() {
                 const task = scanTaskSelect.value;
-                if (task === 'specific_url') {
-                    scanOptionLabel.textContent = 'URL to find (e.g., https://example.com)';
-                    scanOptionInput.placeholder = 'https://example.com';
-                    scanOptionsContainer.classList.remove('hidden');
-                } else if (task === 'find_text') {
-                    scanOptionLabel.textContent = 'Text to find (case-insensitive)';
-                    scanOptionInput.placeholder = 'Enter text...';
-                    scanOptionsContainer.classList.remove('hidden');
-                } else {
-                    scanOptionsContainer.classList.add('hidden');
+                // Hide all option blocks
+                Object.values(scanOptions).forEach(el => el.classList.add('hidden'));
+                // Show the one that matches the task
+                if (scanOptions[task]) {
+                    scanOptions[task].classList.remove('hidden');
                 }
-            });
-            scanTaskSelect.dispatchEvent(new Event('change')); // Run on load
+            }
+            scanTaskSelect.addEventListener('change', toggleScanOptions);
+            toggleScanOptions(); // Run on load
 
             // --- Event Listeners ---
             scanBtn.addEventListener('click', () => runAnalysis('scan'));
-            analyticsBtn.addEventListener('click', () => runAnalysis('analytics'));
+            refreshAnalyticsBtn.addEventListener('click', loadAnalyticsDashboard);
             downloadCsvBtn.addEventListener('click', downloadCSV);
 
             // --- Helper Functions ---
@@ -217,10 +213,9 @@
                 loadingSpinner.classList.toggle('hidden', !isLoading);
                 loadingText.textContent = text;
                 scanBtn.disabled = isLoading;
-                analyticsBtn.disabled = isLoading;
+                refreshAnalyticsBtn.disabled = isLoading;
             }
-            function hideAllContent() {
-                welcomeMessage.classList.remove('hidden');
+            function hideResults() {
                 resultsWrapper.classList.add('hidden');
                 reportHeader.classList.add('hidden');
                 dashboardSection.classList.add('hidden');
@@ -231,37 +226,94 @@
                  if (typeof str !== 'string') return '';
                  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
             }
-            
-            // --- Main Analysis Function ---
-            async function runAnalysis(type) {
+
+            // --- Analytics Dashboard (Your new feature) ---
+            async function loadAnalyticsDashboard() {
                 hideError();
-                hideAllContent();
-                setLoading(true, 'Scanning files...');
-                lastReportData = {};
-                
-                const folderPath = document.getElementById('folder-path').value;
+                setLoading(true, 'Loading analytics dashboard...');
+                hideResults();
+                const folderPath = folderPathInput.value;
                 if (!folderPath) { showError('Please enter a folder path.'); setLoading(false); return; }
-                lastFolderPath = folderPath; // Store for CSV
+
+                try {
+                    const response = await fetch('/get_analytics', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ folder_path: folderPath })
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Analytics fetch failed');
+                    
+                    renderAnalytics(data.analytics);
+
+                } catch (err) {
+                    showError(err.message);
+                } finally {
+                    setLoading(false);
+                }
+            }
+            
+            function renderAnalytics(analytics) {
+                analyticsKpiGrid.innerHTML = ''; // Clear old cards
+                analyticsKpiGrid.innerHTML += createKpiCard('Files Scanned', analytics.files_scanned);
+                analyticsKpiGrid.innerHTML += createKpiCard('Total Lines', analytics.total_lines);
+                analyticsKpiGrid.innerHTML += createKpiCard('Code Blocks', analytics.code_blocks.total, `${analytics.code_blocks.untagged} Unmarked`, 'code_blocks', analytics.code_blocks);
+                analyticsKpiGrid.innerHTML += createKpiCard('Total Links', analytics.links.total_external + analytics.links.total_internal, `${analytics.links.total_external} External`);
+            }
+            
+            function createKpiCard(title, value, subtext = '', id = null, data = null) {
+                let downloadHTML = '';
+                // Add granular download links to dashboard
+                if (id === 'code_blocks' && data.untagged > 0) {
+                    downloadHTML = `<div class="kpi-download" id="csv-analytics-code">Download Unmarked List</div>`;
+                }
                 
-                let task = '';
-                let options = {};
-                let endpoint = '';
-                let loadingMessage = 'Running analysis...';
+                return `
+                    <div class="kpi-card">
+                        <div class="kpi-title">${title}</div>
+                        <div class="kpi-value">${value}</div>
+                        ${subtext ? `<div class="kpi-subtext">${subtext}</div>` : ''}
+                        ${downloadHTML}
+                    </div>`;
+            }
+            
+            // Add listener for granular download
+            analyticsKpiGrid.addEventListener('click', (e) => {
+                if (e.target.id === 'csv-analytics-code') {
+                    setLoading(true, "Generating Code Block report...");
+                    // Run a new "scan" to get the detailed report for this
+                    runAnalysis('scan', {
+                        task: 'code_blocks',
+                        options: { code_block_task: 'untagged' }
+                    }).then(() => {
+                        setLoading(false);
+                        downloadCSV(); // Download the report we just generated
+                    });
+                }
+            });
+
+            // --- Main Analysis Function ---
+            async function runAnalysis(type, taskOverride = null) {
+                hideError();
+                hideResults();
+                
+                const folderPath = folderPathInput.value;
+                if (!folderPath) { showError('Please enter a folder path.'); setLoading(false); return; }
+                lastFolderPath = folderPath;
+                
+                let task, options, endpoint, loadingMessage;
 
                 if (type === 'scan') {
-                    task = scanTaskSelect.value;
-                    options = {
-                        specific_url: document.getElementById('scan-option-input').value,
-                        text_to_find: document.getElementById('scan-option-input').value
+                    task = taskOverride ? taskOverride.task : scanTaskSelect.value;
+                    options = taskOverride ? taskOverride.options : {
+                        link_audit_statuses: Array.from(document.querySelectorAll('.link-status-check:checked')).map(el => el.value),
+                        code_block_task: document.querySelector('input[name="code-task"]:checked').value,
+                        code_block_lang: document.getElementById('code-block-lang').value,
+                        specific_url: document.getElementById('specific-url-input').value,
+                        text_to_find: document.getElementById('find-text-input').value,
                     };
                     endpoint = '/run_scan';
-                    if (task === 'link_audit') {
-                        loadingMessage = 'Running link audit (this may take several minutes)...';
-                    }
-                } else { // type === 'analytics'
-                    task = 'full_analytics';
-                    endpoint = '/get_analytics';
-                    loadingMessage = 'Running instant analytics...';
+                    loadingMessage = task === 'link_audit' ? 'Running link audit (this may take several minutes)...' : 'Running analysis...';
                 }
 
                 setLoading(true, loadingMessage);
@@ -280,7 +332,7 @@
                     if (!response.ok) throw new Error(data.error || 'Analysis failed');
 
                     lastReportData = data;
-                    lastReportData.task = task; // Store task for CSV
+                    lastReportData.task = task;
                     renderReport(data, task);
 
                 } catch (err) {
@@ -297,17 +349,14 @@
                 chartsSection.innerHTML = '';
                 resultsContainer.innerHTML = '';
                 
-                // Show containers
                 resultsWrapper.classList.remove('hidden');
                 reportHeader.classList.remove('hidden');
                 dashboardSection.classList.remove('hidden');
                 chartsSection.classList.remove('hidden');
                 resultsSection.classList.remove('hidden');
                 
-                // --- Render based on which tab we're on ---
-                if (task === 'full_analytics') {
-                    renderFullAnalyticsReport(data);
-                } else if (task === 'code_blocks') {
+                // --- Render based on task ---
+                if (task === 'code_blocks') {
                     renderCodeBlockReport(data);
                 } else if (task === 'specific_url') {
                     renderSpecificUrlReport(data);
@@ -318,33 +367,31 @@
                 }
             }
             
-            function createKpiCard(title, value, subtext = '', id = null) {
-                let downloadHTML = id ? `<div class="kpi-download" id="csv-${id}">Download List</div>` : '';
+            function createScanKpiCard(title, value, subtext = '') {
+                // This is for the SCAN report dashboard
                 dashboardSection.innerHTML += `
                     <div class="kpi-card">
                         <div class="kpi-title">${title}</div>
                         <div class="kpi-value">${value}</div>
                         ${subtext ? `<div class="kpi-subtext">${subtext}</div>` : ''}
-                        ${downloadHTML}
                     </div>`;
             }
 
             function createChart(canvasId, type, chartData, customOptions = {}) {
-                // Clear old chart if it exists
-                let chartInstance;
-                if (canvasId === 'code-blocks-chart') {
-                    if (codeBlocksChart) codeBlocksChart.destroy();
-                    chartInstance = codeBlocksChart;
-                } else if (canvasId === 'domain-chart') {
-                    if (domainChart) domainChart.destroy();
-                    chartInstance = domainChart;
-                } else if (canvasId === 'status-chart') {
-                    if (statusChart) statusChart.destroy();
-                    chartInstance = statusChart;
-                }
+                if (codeBlocksChart) codeBlocksChart.destroy();
+                if (domainChart) domainChart.destroy();
+                if (statusChart) statusChart.destroy();
 
-                // Create new chart
                 if (!chartsSection.querySelector(`#${canvasId}`)) {
+                    const canvas = document.createElement('canvas');
+                    canvas.id = canvasId;
+                    const container = document.createElement('div');
+                    container.className = 'bg-white p-5 rounded-lg shadow h-80';
+                    container.appendChild(canvas);
+                    chartsSection.appendChild(container);
+                } else {
+                    // Clear the old chart container if it exists
+                    chartsSection.innerHTML = '';
                     const canvas = document.createElement('canvas');
                     canvas.id = canvasId;
                     const container = document.createElement('div');
@@ -372,10 +419,10 @@
             function renderCodeBlockReport(data) {
                 const { analytics, details } = data;
                 reportTitle.textContent = 'Code Block Analysis';
-                createKpiCard('Files Scanned', analytics.files_scanned);
-                createKpiCard('Files with Issues', analytics.files_with_issues);
-                createKpiCard('Total Code Blocks', analytics.total_blocks);
-                createKpiCard('Total Unmarked', analytics.total_untagged, `${analytics.total_tagged} Marked`);
+                createScanKpiCard('Files Scanned', analytics.files_scanned);
+                createScanKpiCard('Files with Issues', analytics.files_with_issues);
+                createScanKpiCard('Total Code Blocks', analytics.total_blocks);
+                createScanKpiCard('Total Unmarked', analytics.total_untagged, `${analytics.total_tagged} Marked`);
 
                 if (analytics.total_blocks > 0) {
                     createChart('code-blocks-chart', 'doughnut', {
@@ -393,7 +440,7 @@
                             <h3 class="text-lg font-semibold">${escapeHTML(item.title)}</h3>
                             <p class="text-sm text-gray-500 font-mono mb-2">${escapeHTML(item.file)}</p>
                             <ul class="list-disc list-inside">
-                                <li class="text-yellow-700"><strong>${item.untagged} Unmarked Block(s)</strong> on lines: ${item.untagged_lines.join(', ')}</li>
+                                <li class="text-yellow-700"><strong>${item.untagged} Unmarked Block(s)</strong> on lines: ${item.lines.join(', ')}</li>
                             </ul>
                         </div>`;
                 });
@@ -402,8 +449,7 @@
             function renderSpecificUrlReport(data) {
                 const { details } = data;
                 reportTitle.textContent = 'Specific URL Report';
-                // Note: We need a better way to get files_scanned for reports
-                createKpiCard('Files with Link', details.length);
+                createScanKpiCard('Files with Link', details.length);
 
                 if (details.length === 0) {
                     resultsContainer.innerHTML = '<p class="text-gray-500">No files with that specific URL found.</p>';
@@ -428,7 +474,7 @@
             function renderFindTextReport(data) {
                 const { details } = data;
                 reportTitle.textContent = 'Find Text Report';
-                createKpiCard('Files with Text', details.length);
+                createScanKpiCard('Files with Text', details.length);
 
                 if (details.length === 0) {
                     resultsContainer.innerHTML = '<p class="text-gray-500">No files with that text found.</p>';
@@ -456,10 +502,10 @@
                 const status = analytics.status_counts;
                 const totalBroken = (status['4xx'] || 0) + (status['5xx'] || 0) + (status['Timeout'] || 0) + (status['Connection Error'] || 0) + (status['Invalid URL'] || 0);
                 
-                createKpiCard('Links Checked', analytics.total_links_checked);
-                createKpiCard('Healthy (2xx)', status['2xx'] || 0);
-                createKpiCard('Redirects (3xx)', status['3xx'] || 0);
-                createKpiCard('Broken', totalBroken, '4xx, 5xx, or Timeout');
+                createScanKpiCard('Links Checked', analytics.total_links_checked);
+                createScanKpiCard('Healthy (2xx)', status['2xx'] || 0);
+                createScanKpiCard('Redirects (3xx)', status['3xx'] || 0);
+                createScanKpiCard('Broken', totalBroken, '4xx, 5xx, or Timeout');
 
                 if (analytics.total_links_checked > 0) {
                     createChart('status-chart', 'doughnut', {
@@ -468,7 +514,7 @@
                 }
                 
                 if (details.length === 0) {
-                    resultsContainer.innerHTML = '<p class="text-gray-500">No files with external links were found to check.</p>';
+                    resultsContainer.innerHTML = '<p class="text-gray-500">No links matching your filter were found.</p>';
                     return;
                 }
                 details.forEach(item => {
@@ -491,48 +537,23 @@
                 });
             }
             
-            function renderFullAnalyticsReport(data) {
-                const analytics = data;
-                reportTitle.textContent = 'Full Analytics Dashboard';
-                resultsSection.classList.add('hidden'); // No detailed list for this view
-                
-                createKpiCard('Files Scanned', analytics.files_scanned, null, 'files');
-                createKpiCard('Total Lines', analytics.total_lines);
-                createKpiCard('Code Blocks', analytics.code_blocks.total, `${analytics.code_blocks.untagged} Unmarked`, 'code');
-                createKpiCard('External Links', analytics.links.total_external, null, 'external');
-                createKpiCard('Internal Links', analytics.links.total_internal, `${analytics.links.total_internal_broken} Broken`, 'internal');
-                createKpiCard('Stub Pages', analytics.content.stubs, null, 'stubs');
-                createKpiCard('TODOs Found', analytics.content.todos, null, 'todos');
-                
-                if (analytics.code_blocks.total > 0) {
-                    createChart('code-blocks-chart', 'doughnut', {
-                        labels: ['Marked', 'Unmarked'], data: [analytics.code_blocks.tagged, analytics.code_blocks.untagged]
-                    }, { legend: { position: 'bottom' }, plugins: { title: { display: true, text: 'Code Blocks' } } });
-                }
-                
-                // Add download listeners for analytics
-                addCsvDownloadListeners(data);
-            }
-
             // --- CSV EXPORT FUNCTION ---
             function downloadCSV() {
-                if (lastReportData.task === 'full_analytics') {
-                    alert("Click the 'Download List' link on a specific KPI card to download its report.");
-                    return;
+                if (!lastReportData.details) { 
+                    alert("No detailed report to export."); 
+                    return; 
                 }
                 
                 const { details } = lastReportData;
                 const task = lastReportData.task;
-                if (!details) { alert("No detailed report to export."); return; }
-                
                 let csvContent = "data:text/csv;charset=utf-8,";
                 const escapeCSV = (str) => `"${(String(str) || '').replace(/"/g, '""')}"`;
                 let filename = `${task}_report.csv`;
 
                 if (task === 'code_blocks') {
-                    csvContent += "File,Title,TotalBlocks,Tagged,Untagged,UntaggedLines\n";
+                    csvContent += "File,Title,Type,Count,Lines\n";
                     details.forEach(r => {
-                        csvContent += `${escapeCSV(r.file)},${escapeCSV(r.title)},${r.total},${r.tagged},${r.untagged},"${r.untagged_lines.join(', ')}"\n`;
+                        csvContent += `${escapeCSV(r.file)},${escapeCSV(r.title)},${escapeCSV(r.type)},${r.count},"${r.lines.join(', ')}"\n`;
                     });
                 } else if (task === 'specific_url') {
                     csvContent += "File,Title,AnchorText,Link\n";
@@ -563,51 +584,6 @@
                 downloadFile(filename, csvContent);
             }
             
-            function addCsvDownloadListeners(data) {
-                // Hook up download buttons for the Analytics page
-                const { details } = data;
-                if (!details) return;
-
-                document.getElementById('csv-code')?.addEventListener('click', () => {
-                    let csvContent = "data:text/csv;charset=utf-8,";
-                    csvContent += "File,Title,UntaggedCount\n";
-                    const escapeCSV = (str) => `"${(String(str) || '').replace(/"/g, '""')}"`;
-                    details.code_blocks.forEach(r => csvContent += `${escapeCSV(r.file)},${escapeCSV(r.title)},${r.untagged}\n`);
-                    downloadFile('code_blocks_report.csv', csvContent);
-                });
-                
-                document.getElementById('csv-external')?.addEventListener('click', () => {
-                    let csvContent = "data:text/csv;charset=utf-8,";
-                    csvContent += "File,Title,AnchorText,Domain,Link\n";
-                    const escapeCSV = (str) => `"${(String(str) || '').replace(/"/g, '""')}"`;
-                    details.external_links.forEach(l => csvContent += `${escapeCSV(l.file)},${escapeCSV(l.title)},${escapeCSV(l.text)},${escapeCSV(l.domain)},${escapeCSV(l.link)}\n`);
-                    downloadFile('external_links_report.csv', csvContent);
-                });
-                
-                // Add more for stubs, todos, etc.
-                 document.getElementById('csv-internal')?.addEventListener('click', () => {
-                    let csvContent = "data:text/csv;charset=utf-8,";
-                    csvContent += "File,Title,Link,Status\n";
-                    const escapeCSV = (str) => `"${(String(str) || '').replace(/"/g, '""')}"`;
-                    details.broken_internal.forEach(l => csvContent += `${escapeCSV(l.file)},${escapeCSV(l.title)},${escapeCSV(l.link)},${escapeCSV(l.status)}\n`);
-                    downloadFile('broken_internal_links_report.csv', csvContent);
-                });
-                document.getElementById('csv-stubs')?.addEventListener('click', () => {
-                    let csvContent = "data:text/csv;charset=utf-8,";
-                    csvContent += "File,Title\n";
-                    const escapeCSV = (str) => `"${(String(str) || '').replace(/"/g, '""')}"`;
-                    details.stubs.forEach(r => csvContent += `${escapeCSV(r.file)},${escapeCSV(r.title)}\n`);
-                    downloadFile('stub_pages_report.csv', csvContent);
-                });
-                 document.getElementById('csv-todos')?.addEventListener('click', () => {
-                    let csvContent = "data:text/csv;charset=utf-8,";
-                    csvContent += "File,Title,Count\n";
-                    const escapeCSV = (str) => `"${(String(str) || '').replace(/"/g, '""')}"`;
-                    details.todos.forEach(r => csvContent += `${escapeCSV(r.file)},${escapeCSV(r.title)},${r.count}\n`);
-                    downloadFile('todos_report.csv', csvContent);
-                });
-            }
-            
             function downloadFile(filename, content) {
                 const encodedUri = encodeURI(content);
                 const link = document.createElement("a");
@@ -617,6 +593,14 @@
                 link.click();
                 document.body.removeChild(link);
             }
+            
+            // --- Event Listeners ---
+            scanBtn.addEventListener('click', () => runAnalysis('scan'));
+            refreshAnalyticsBtn.addEventListener('click', loadAnalyticsDashboard);
+            downloadCsvBtn.addEventListener('click', downloadCSV);
+            
+            // --- Load Dashboard on Page Load ---
+            loadAnalyticsDashboard();
         });
     </script>
 </body>
