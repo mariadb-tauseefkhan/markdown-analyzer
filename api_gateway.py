@@ -18,52 +18,25 @@ SERVICES = {
 }
 SCAN_CACHE_DIR = '/tmp/scans'
 
-# --- NEW HELPER: GitHub URL Converter (FIXED FOR REAL) ---
+# --- NEW HELPER: GitHub URL Converter (FIXED) ---
 def convert_github_url(item_url):
     """
     Converts a web-friendly GitHub URL (.../tree/main/folder)
     into an SVN-friendly trunk URL (.../trunk/folder).
     """
-    try:
-        parsed = urlparse(item_url)
-        if "github.com" not in parsed.netloc:
-            return item_url # Not a github URL, pass it through
-
-        # path will be /<user>/<repo>/tree/<branch>/<folder>
-        # or /<user>/<repo>/blob/<branch>/<file>
-        parts = parsed.path.split('/')
-        
-        branch_indicator = None
-        if 'tree' in parts:
-            branch_indicator = 'tree'
-        elif 'blob' in parts:
-            branch_indicator = 'blob'
-        
-        # This is the base URL, e.g. https://github.com/user/repo
-        base_repo_url = f"https://{parsed.netloc}/{parts[1]}/{parts[2]}"
-        
-        if not branch_indicator:
-            # URL is likely just https://github.com/user/repo
-            # We assume 'trunk' (default branch)
-            return f"{base_repo_url}/trunk"
-
-        idx = parts.index(branch_indicator)
-        branch_name = parts[idx + 1]
-        sub_path = "/".join(parts[idx+2:])
-        
-        # *** THIS IS THE FINAL FIX ***
-        # The correct format is .../REPO/trunk/FOLDER (no .git)
-        
-        if branch_name == 'main':
-            svn_url = f"{base_repo_url}/trunk/{sub_path}"
-        else:
-            # Handle other branches
-            svn_url = f"{base_repo_url}/branches/{branch_name}/{sub_path}"
-        
-        return svn_url
-        
-    except Exception:
+    if not item_url:
         return item_url
+    
+    # This is the simple, correct logic.
+    if "/tree/main/" in item_url:
+        svn_url = item_url.replace("/tree/main/", "/trunk/", 1)
+    elif "/blob/main/" in item_url:
+        svn_url = item_url.replace("/blob/main/", "/trunk/", 1)
+    else:
+        # It's either already a trunk URL or an unknown format.
+        return item_url
+        
+    return svn_url
 
 # --- Helper: Download from GitHub ---
 def download_repo_item(item_url):
@@ -72,14 +45,17 @@ def download_repo_item(item_url):
     Returns the local path to the downloaded item and its name.
     """
     try:
+        # --- NEW: Convert the URL first! ---
         svn_url = convert_github_url(item_url)
         
         scan_id = str(uuid.uuid4())
-        item_name = item_url.split('/')[-1] # Get the original name
+        # Get the original name from the *original* URL
+        item_name = item_url.split('/')[-1]
         local_path = os.path.join(SCAN_CACHE_DIR, scan_id, item_name)
         
         cmd = ['svn', 'export', '--quiet', '--force', svn_url, local_path]
         
+        # Capture output for better erroring
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         
         return local_path, item_name, None
