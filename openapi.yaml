@@ -1,0 +1,232 @@
+openapi: 3.0.0
+info:
+  title: Markdown Analytics Suite API (v1)
+  description: "Stateless API for the Markdown Analytics Suite. All endpoints are served by the `api-gateway`, which downloads content from GitHub on demand and routes tasks to internal microservices."
+  version: 1.0.0
+servers:
+  - url: /
+    description: Current server
+tags:
+  - name: Fast Scans (Content)
+    description: "File-reading scans. Handled by the `content-scanner` service."
+  - name: Slow Scans (Network)
+    description: "Network-intensive scans. Handled by the `http-auditor` service."
+  - name: Folder Discovery
+    description: "Endpoints for exploring the repository structure."
+
+paths:
+  /api/v1/analytics:
+    post:
+      tags: [Fast Scans (Content)]
+      summary: Get Folder Analytics
+      description: Gathers high-level statistics for the entire folder. Returns *only* numbers (no details list).
+      requestBody:
+        $ref: '#/components/requestBodies/FolderRepo'
+      responses:
+        '200':
+          description: A JSON object with high-level analytics.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsResponse'
+        '400': { $ref: '#/components/responses/400' }
+        '500': { $ref: '#/components/responses/500' }
+
+  /api/v1/code_blocks:
+    post:
+      tags: [Fast Scans (Content)]
+      summary: Code Block Scanner
+      description: Finds all untagged code blocks OR all blocks of a specific language in a folder.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                folder_in_repo: { $ref: '#/components/schemas/FolderRepoPath' }
+                scan_type:
+                  type: string
+                  enum: [untagged, specific_language]
+                language:
+                  type: string
+                  description: "Required if scan_type is 'specific_language'"
+                  example: "bash"
+      responses:
+        '200':
+          $ref: '#/components/responses/ReportResponse'
+        '400': { $ref: '#/components/responses/400' }
+        '500': { $ref: '#/components/responses/500' }
+
+  /api/v1/links:
+    post:
+      tags: [Fast Scans (Content)]
+      summary: Link Scanner
+      description: Finds all internal links, all external links, or all links starting with a specific URL in a folder.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                folder_in_repo: { $ref: '#/components/schemas/FolderRepoPath' }
+                scan_type:
+                  type: string
+                  enum: [internal, external, starting_with]
+                url_pattern:
+                  type: string
+                  description: "Required if scan_type is 'starting_with'"
+                  example: "https://github.com/"
+      responses:
+        '200':
+          $ref: '#/components/responses/ReportResponse'
+        '400': { $ref: '#/components/responses/400' }
+        '500': { $ref: '#/components/responses/500' }
+
+  /api/v1/text_scanner:
+    post:
+      tags: [Fast Scans (Content)]
+      summary: Text Scanner (Regex)
+      description: Scans all files in a folder for text matching a specific Regex pattern.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                folder_in_repo: { $ref: '#/components/schemas/FolderRepoPath' }
+                regex:
+                  type: string
+                  description: "A PCRE-compatible regex pattern."
+                  example: "(TODO|FIXME):"
+                case_sensitive:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          $ref: '#/components/responses/ReportResponse'
+        '400': { $ref: '#/components/responses/400' }
+        '500': { $ref: '#/components/responses/500' }
+
+  /api/v1/list_folder:
+    post:
+      tags: [Folder Discovery]
+      summary: Folder Lister (ls)
+      description: "Lists all files and sub-folders in a given repo folder."
+      requestBody:
+        $ref: '#/components/requestBodies/FolderRepo'
+      responses:
+        '200':
+          description: A list of files and sub-folders.
+        '400': { $ref: '#/components/responses/400' }
+        '500': { $ref: '#/components/responses/500' }
+        
+  /api/v1/get_file_details:
+    post:
+      tags: [Folder Discovery]
+      summary: File Detail Extractor
+      description: Downloads a single file and returns a deep-dive analysis of its contents.
+      requestBody:
+        $ref: '#/components/requestBodies/FileRepo'
+      responses:
+        '200':
+          description: A detailed breakdown of the file.
+        '400': { $ref: '#/components/responses/400' }
+        '500': { $ref: '#/components/responses/500' }
+
+  /api/v1/http_codes:
+    post:
+      tags: [Slow Scans (Network)]
+      summary: HTTP Code Auditor
+      description: "Audits all external links in a folder for their HTTP status. This is a SLOW endpoint and may take several minutes."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                folder_in_repo: { $ref: '#/components/schemas/FolderRepoPath' }
+                http_codes:
+                  type: array
+                  items: { type: string }
+                  description: "List of status codes/categories. Use '*' for all."
+                  example: ["404", "4xx", "3xx", "Other"]
+      responses:
+        '200':
+          $ref: '#/components/responses/ReportResponse'
+        '400': { $ref: '#/components/responses/400' }
+        '500': { $ref: '#/components/responses/500' }
+
+components:
+  schemas:
+    FolderRepoPath:
+      type: string
+      description: "Full SVN URL to the folder trunk."
+      example: "https://github.com/mariadb-corporation/mariadb-docs/trunk/mariadb-cloud"
+    FileRepoPath:
+      type: string
+      description: "Full SVN URL to the file trunk."
+      example: "https://github.com/mariadb-corporation/mariadb-docs/trunk/mariadb-cloud/README.md"
+    AnalyticsDashboard:
+      type: object
+      properties:
+        analytics:
+          type: object
+          properties:
+            files_scanned: { type: integer }
+            total_lines: { type: integer }
+            total_links: { type: integer }
+            total_external_links: { type: integer }
+            total_code_blocks: { type: integer }
+            total_untagged_blocks: { type: integer }
+
+  requestBodies:
+    FolderRepo:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              folder_in_repo: { $ref: '#/components/schemas/FolderRepoPath' }
+    FileRepo:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              file_in_repo: { $ref: '#/components/schemas/FileRepoPath' }
+
+  responses:
+    ReportResponse:
+      description: "A report with analytics and a details list. Supports `Accept: text/csv` for raw download."
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              analytics:
+                type: object
+              details:
+                type: array
+                items: {}
+    400:
+      description: "Bad Request. The request body is invalid."
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string, example: "Missing folder_in_repo" }
+    500:
+      description: "Internal Server Error. The download or scan failed."
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string, example: "Failed to download from GitHub. Check the URL." }

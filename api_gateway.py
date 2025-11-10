@@ -11,8 +11,6 @@ app = Flask(__name__)
 CORS(app)
 
 # --- CONFIGURATION ---
-# These are the internal Docker addresses for our services
-# We use the service names from docker-compose.yml
 SERVICES = {
     'content_scanner': 'http://content-scanner:5001',
     'http_auditor': 'http://http-auditor:5002'
@@ -21,20 +19,11 @@ SCAN_CACHE_DIR = '/tmp/scans'
 
 # --- Helper: Download from GitHub ---
 def download_repo_item(item_url):
-    """
-    Downloads a folder or file from GitHub using svn export.
-    Returns the local path to the downloaded item and its name.
-    """
     try:
-        # Create a unique directory for this scan
         scan_id = str(uuid.uuid4())
-        # The final item name (e.g., "mariadb-cloud" or "README.md")
         item_name = item_url.split('/')[-1]
         local_path = os.path.join(SCAN_CACHE_DIR, scan_id, item_name)
         
-        # Use 'svn export' -- it's fast and downloads *only* the files
-        # --quiet: Suppress progress
-        # --force: Overwrite if it somehow exists
         cmd = ['svn', 'export', '--quiet', '--force', item_url, local_path]
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
@@ -46,20 +35,27 @@ def download_repo_item(item_url):
 
 # --- Helper: Cleanup ---
 def cleanup_scan(local_path):
-    """
-    Deletes the temporary directory for a scan.
-    """
     try:
-        # We want to delete the parent UUID folder (e.g., /tmp/scans/scan_id)
         shutil.rmtree(os.path.dirname(local_path))
     except Exception as e:
         print(f"Warning: Failed to cleanup {local_path}. Error: {e}")
 
-# --- API: Serve a UI (e.g., Swagger) ---
+# --- API: Serve the API Docs ---
 @app.route('/')
 def serve_index():
-    # In the future, we will create an api.html file
-    return "Markdown Analytics Suite API Gateway is running. See /api/v1/docs for endpoints."
+    """Redirects root to the API docs."""
+    return send_from_directory('.', 'api.html')
+
+@app.route('/api')
+def serve_api_docs():
+    """Serves the interactive API documentation page."""
+    return send_from_directory('.', 'api.html')
+
+@app.route('/openapi.yaml')
+def serve_openapi_spec():
+    """Serves the raw OpenAPI spec file."""
+    return send_from_directory('.', 'openapi.yaml')
+# --- END API DOCS ---
 
 # --- API 1: HTTP Code Auditor ---
 @app.route('/api/v1/http_codes', methods=['POST'])
@@ -76,7 +72,8 @@ def http_codes():
     try:
         response = requests.post(
             f"{SERVICES['http_auditor']}/run_http_audit",
-            json={'local_path': local_path, 'http_codes': http_codes}
+            json={'local_path': local_path, 'http_codes': http_codes},
+            headers={'Accept': request.headers.get('Accept')} # Pass through Accept header
         )
         response.raise_for_status()
         return response.content, response.status_code, response.headers.items()
@@ -98,7 +95,8 @@ def code_blocks():
     try:
         response = requests.post(
             f"{SERVICES['content_scanner']}/run_code_blocks",
-            json={'local_path': local_path, 'scan_type': data.get('scan_type'), 'language': data.get('language')}
+            json={'local_path': local_path, 'scan_type': data.get('scan_type'), 'language': data.get('language')},
+            headers={'Accept': request.headers.get('Accept')}
         )
         response.raise_for_status()
         return response.content, response.status_code, response.headers.items()
@@ -120,7 +118,8 @@ def links():
     try:
         response = requests.post(
             f"{SERVICES['content_scanner']}/run_link_scan",
-            json={'local_path': local_path, 'scan_type': data.get('scan_type'), 'url_pattern': data.get('url_pattern')}
+            json={'local_path': local_path, 'scan_type': data.get('scan_type'), 'url_pattern': data.get('url_pattern')},
+            headers={'Accept': request.headers.get('Accept')}
         )
         response.raise_for_status()
         return response.content, response.status_code, response.headers.items()
@@ -142,7 +141,8 @@ def text_scanner():
     try:
         response = requests.post(
             f"{SERVICES['content_scanner']}/run_text_scan",
-            json={'local_path': local_path, 'regex': data.get('regex'), 'case_sensitive': data.get('case_sensitive')}
+            json={'local_path': local_path, 'regex': data.get('regex'), 'case_sensitive': data.get('case_sensitive')},
+            headers={'Accept': request.headers.get('Accept')}
         )
         response.raise_for_status()
         return response.content, response.status_code, response.headers.items()
