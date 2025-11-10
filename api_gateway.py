@@ -18,56 +18,92 @@ SERVICES = {
 }
 SCAN_CACHE_DIR = '/tmp/scans'
 
-# --- NEW HELPER: GitHub URL Converter (FIXED) ---
-def convert_github_url(item_url):
-    """
-    Converts a web-friendly GitHub URL (.../tree/main/folder)
-    into an SVN-friendly trunk URL (.../trunk/folder).
-    """
-    if not item_url:
-        return item_url
-    
-    # This is the simple, correct logic.
-    if "/tree/main/" in item_url:
-        svn_url = item_url.replace("/tree/main/", "/trunk/", 1)
-    elif "/blob/main/" in item_url:
-        svn_url = item_url.replace("/blob/main/", "/trunk/", 1)
-    else:
-        # It's either already a trunk URL or an unknown format.
-        return item_url
-        
-    return svn_url
 
-# --- Helper: Download from GitHub ---
-def download_repo_item(item_url):
+# --- (((( THIS IS THE NEW, CORRECT DOWNLOAD FUNCTION )))) ---
+
+def parse_github_url(item_url):
     """
-    Downloads a folder or file from GitHub using svn export.
-    Returns the local path to the downloaded item and its name.
+    Parses a .../tree/main/folder URL into its components.
     """
     try:
-        # --- NEW: Convert the URL first! ---
-        svn_url = convert_github_url(item_url)
+        parsed = urlparse(item_url)
+        if "github.com" not in parsed.netloc:
+            return None, None, None, "Not a GitHub URL"
+
+        parts = parsed.path.split('/')
+        # parts = ['', 'user', 'repo', 'tree', 'branch', 'folder', 'subfolder']
         
-        scan_id = str(uuid.uuid4())
-        # Get the original name from the *original* URL
-        item_name = item_url.split('/')[-1]
-        local_path = os.path.join(SCAN_CACHE_DIR, scan_id, item_name)
+        user = parts[1]
+        repo = parts[2].replace('.git', '')
+        repo_url = f"https://github.com/{user}/{repo}.git"
         
-        cmd = ['svn', 'export', '--quiet', '--force', svn_url, local_path]
+        if 'tree' in parts:
+            idx = parts.index('tree')
+        elif 'blob' in parts:
+            idx = parts.index('blob')
+        else:
+            return repo_url, "main", "", "URL does not contain /tree/ or /blob/. Assuming root." # Best guess for root
+
+        branch = parts[idx + 1]
+        folder_path = "/".join(parts[idx+2:])
         
-        # Capture output for better erroring
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return repo_url, branch, folder_path, None
+    except Exception as e:
+        return None, None, None, f"URL Parsing failed: {e}"
+
+def download_repo_item(item_url):
+    """
+    Downloads a single folder from GitHub using git sparse-checkout.
+    Returns the *full path* to the *downloaded subfolder*.
+    """
+    scan_id = str(uuid.uuid4())
+    # This is the temporary directory where we clone the *empty* repo
+    scan_dir = os.path.join(SCAN_CACHE_DIR, scan_id)
+    
+    try:
+        repo_url, branch, folder_path, error = parse_github_url(item_url)
+        if error:
+            return None, None, error
+
+        # 1. Clone the repo, but don't download any files yet
+        cmd = ['git', 'clone', '--no-checkout', '--depth', '1', '-b', branch, repo_url, scan_dir]
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+        # 2. Tell git we are using sparse checkout
+        cmd = ['git', 'sparse-checkout', 'init', '--cone']
+        subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=scan_dir)
+
+        # 3. Set the *one* folder we want to download
+        cmd = ['git', 'sparse-checkout', 'set', folder_path]
+        subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=scan_dir)
+
+        # 4. Now, download *only* that folder
+        cmd = ['git', 'checkout', branch]
+        subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=scan_dir)
         
-        return local_path, item_name, None
+        # 5. Return the full path to the *specific folder* we downloaded
+        # This is the path our other services will scan
+        final_path = os.path.join(scan_dir, folder_path)
+        item_name = os.path.basename(folder_path) # e.g., "mariadb-cloud"
+        
+        return final_path, item_name, None
+        
     except subprocess.CalledProcessError as e:
-        error_message = f"SVN Export failed. Tried URL: '{svn_url}'. Error: {e.stderr}"
+        error_message = f"Git operation failed. Repo: {repo_url}, Folder: {folder_path}. Error: {e.stderr}"
         return None, None, error_message
     except Exception as e:
         return None, None, str(e)
+# --- (((( END OF NEW DOWNLOAD FUNCTION )))) ---
+
 
 # --- Helper: Cleanup ---
 def cleanup_scan(local_path):
+    """
+    Deletes the temporary directory for a scan.
+    """
     try:
+        # We want to delete the parent UUID folder (e.g., /tmp/scans/scan_id)
+        # We get this by going "up" one level from the final_path
         shutil.rmtree(os.path.dirname(local_path))
     except Exception as e:
         print(f"Warning: Failed to cleanup {local_path}. Error: {e}")
@@ -75,17 +111,12 @@ def cleanup_scan(local_path):
 # --- API: Serve the API Docs ---
 @app.route('/')
 def serve_index():
-    """Redirects root to the API docs."""
     return send_from_directory('.', 'api.html')
-
 @app.route('/api')
 def serve_api_docs():
-    """Serves the interactive API documentation page."""
     return send_from_directory('.', 'api.html')
-
 @app.route('/openapi.yaml')
 def serve_openapi_spec():
-    """Serves the raw OpenAPI spec file."""
     return send_from_directory('.', 'openapi.yaml')
 # --- END API DOCS ---
 
@@ -98,6 +129,7 @@ def http_codes():
     if not folder_url or not http_codes:
         return jsonify({'error': 'Missing folder_in_repo or http_codes'}), 400
 
+    # local_path is now the path to the *subfolder* (e.g., /tmp/scans/uuid/mariadb-cloud)
     local_path, _, error = download_repo_item(folder_url)
     if error: return jsonify({'error': error}), 500
     
