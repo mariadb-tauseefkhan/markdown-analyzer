@@ -26,10 +26,9 @@ def convert_github_url(url):
     if not url:
         return url
     # Replaces the first instance of /tree/main/ with /trunk/
-    # This is more robust than a simple replace.
     return re.sub(r'/tree/main/', '/trunk/', url, 1)
 
-# --- Helper: Download from GitHub ---
+# --- Helper: Download from GitHub (UPDATED WITH BETTER ERRORING) ---
 def download_repo_item(item_url):
     """
     Downloads a folder or file from GitHub using svn export.
@@ -43,14 +42,20 @@ def download_repo_item(item_url):
         item_name = svn_url.split('/')[-1]
         local_path = os.path.join(SCAN_CACHE_DIR, scan_id, item_name)
         
+        # We now capture the output to get real errors
         cmd = ['svn', 'export', '--quiet', '--force', svn_url, local_path]
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        # --- THIS BLOCK IS UPDATED ---
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         
         return local_path, item_name, None
-    except subprocess.CalledProcessError:
-        return None, None, "Failed to download from GitHub. Check the URL (make sure it's .../tree/main/... or .../trunk/...)."
+    except subprocess.CalledProcessError as e:
+        # This is the new, better error message
+        error_message = f"SVN Export failed. Return code: {e.returncode}. Error: {e.stderr}"
+        return None, None, error_message
     except Exception as e:
         return None, None, str(e)
+    # --- END UPDATE ---
 
 # --- Helper: Cleanup ---
 def cleanup_scan(local_path):
