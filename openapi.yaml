@@ -1,8 +1,8 @@
 openapi: 3.0.0
 info:
   title: Markdown Analytics Suite API (v1)
-  description: "Stateless API for the Markdown Analytics Suite. All endpoints are served by the `api-gateway`, which downloads content from GitHub on demand and routes tasks to internal microservices."
-  version: 1.0.0
+  description: "Stateless API for the Markdown Analytics Suite. The gateway auto-converts GitHub /tree/main/ URLs to /trunk/ URLs."
+  version: 1.1.0
 servers:
   - url: /
     description: Current server
@@ -28,7 +28,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnalyticsResponse'
+                $ref: '#/components/schemas/AnalyticsDashboard'
         '400': { $ref: '#/components/responses/400' }
         '500': { $ref: '#/components/responses/500' }
 
@@ -164,12 +164,12 @@ components:
   schemas:
     FolderRepoPath:
       type: string
-      description: "Full SVN URL to the folder trunk."
-      example: "https://github.com/mariadb-corporation/mariadb-docs/trunk/mariadb-cloud"
+      description: "Full web URL to the GitHub folder (e.g., .../tree/main/...)."
+      example: "https://github.com/mariadb-corporation/mariadb-docs/tree/main/mariadb-cloud"
     FileRepoPath:
       type: string
-      description: "Full SVN URL to the file trunk."
-      example: "https://github.com/mariadb-corporation/mariadb-docs/trunk/mariadb-cloud/README.md"
+      description: "Full web URL to the GitHub file."
+      example: "https://github.com/mariadb-corporation/mariadb-docs/tree/main/mariadb-cloud/README.md"
     AnalyticsDashboard:
       type: object
       properties:

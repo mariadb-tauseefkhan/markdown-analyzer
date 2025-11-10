@@ -17,19 +17,38 @@ SERVICES = {
 }
 SCAN_CACHE_DIR = '/tmp/scans'
 
+# --- NEW HELPER: GitHub URL Converter ---
+def convert_github_url(url):
+    """
+    Converts a web-friendly GitHub URL (.../tree/main/...)
+    into an SVN-friendly trunk URL (.../trunk/...).
+    """
+    if not url:
+        return url
+    # Replaces the first instance of /tree/main/ with /trunk/
+    # This is more robust than a simple replace.
+    return re.sub(r'/tree/main/', '/trunk/', url, 1)
+
 # --- Helper: Download from GitHub ---
 def download_repo_item(item_url):
+    """
+    Downloads a folder or file from GitHub using svn export.
+    Returns the local path to the downloaded item and its name.
+    """
     try:
+        # --- NEW: Convert the URL first! ---
+        svn_url = convert_github_url(item_url)
+        
         scan_id = str(uuid.uuid4())
-        item_name = item_url.split('/')[-1]
+        item_name = svn_url.split('/')[-1]
         local_path = os.path.join(SCAN_CACHE_DIR, scan_id, item_name)
         
-        cmd = ['svn', 'export', '--quiet', '--force', item_url, local_path]
+        cmd = ['svn', 'export', '--quiet', '--force', svn_url, local_path]
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
         return local_path, item_name, None
     except subprocess.CalledProcessError:
-        return None, None, "Failed to download from GitHub. Check the URL."
+        return None, None, "Failed to download from GitHub. Check the URL (make sure it's .../tree/main/... or .../trunk/...)."
     except Exception as e:
         return None, None, str(e)
 
@@ -73,7 +92,7 @@ def http_codes():
         response = requests.post(
             f"{SERVICES['http_auditor']}/run_http_audit",
             json={'local_path': local_path, 'http_codes': http_codes},
-            headers={'Accept': request.headers.get('Accept')} # Pass through Accept header
+            headers={'Accept': request.headers.get('Accept')}
         )
         response.raise_for_status()
         return response.content, response.status_code, response.headers.items()
