@@ -1,46 +1,50 @@
 version: '3.8'
 
+# This creates a shared, temporary disk space.
+# All services can read/write to this space.
+volumes:
+  scan-cache:
+
 services:
-  # Service 1: The API Gateway (the "Waiter")
-  # This is the ONLY service the browser talks to (on port 5000).
+  # Service 1: The API Gateway (The "Manager")
+  # This is the ONLY service the public talks to.
   api-gateway:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
     ports:
       - "5000:5000"
     volumes:
-      # This service needs the code and the docs
+      # Mount the code and the shared disk
       - .:/app
-      - /root/mariadb-docs:/scan_data
-    # This command starts the gateway server
-    command: python gateway.py
+      - scan-cache:/tmp/scans
+    command: python api_gateway.py
     depends_on:
-      - analytics-service
-      - scan-service
-      - link-auditor
+      - content-scanner
+      - http-auditor
 
-  # Service 2: The Analytics Service (the "Instant Dashboard")
-  analytics-service:
-    build: .
+  # Service 2: The "Fast" Content Scanner
+  content-scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
     volumes:
       - .:/app
-      - /root/mariadb-docs:/scan_data
-    # This command starts the analytics server on its own internal port
-    command: python analytics_service.py
+      - scan-cache:/tmp/scans
+    # Internal port, not visible to the public
+    expose:
+      - "5001"
+    command: python content_scanner_service.py
 
-  # Service 3: The Scan Service (the "Fast Report")
-  scan-service:
-    build: .
+  # Service 3: The "Slow" HTTP Auditor
+  http-auditor:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
     volumes:
       - .:/app
-      - /root/mariadb-docs:/scan_data
-    # This command starts the fast scanner on its own internal port
-    command: python scan_service.py
-
-  # Service 4: The Link Auditor (the "Slow Report")
-  link-auditor:
-    build: .
-    volumes:
-      - .:/app
-      - /root/mariadb-docs:/scan_data
-    # This command starts the slow link checker on its own internal port
-    command: python link_auditor_service.py
+      - scan-cache:/tmp/scans
+    # Internal port, not visible to the public
+    expose:
+      - "5002"
+    command: python http_auditor_service.py

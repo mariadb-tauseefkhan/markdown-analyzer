@@ -12,6 +12,3 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application code into the container
 COPY . .
-
-# NOTE: We no longer need a CMD here,
-# docker-compose.yml will provide it.
