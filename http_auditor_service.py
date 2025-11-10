@@ -133,7 +133,11 @@ def run_http_audit():
     for res in link_results:
         # Check if this link's status is one the user asked for
         # If user wants "*", we include all.
-        if "*" in http_codes_to_find or res['status_code'] in http_codes_to_find or res['status_category'] in http_codes_to_find:
+        status_str = str(res['status_code'])
+        if ("*" in http_codes_to_find or 
+            status_str in http_codes_to_find or 
+            res['status_category'] in http_codes_to_find):
+            
             # Add all files/anchors that use this link
             for source in file_link_map.get(res['link'], []):
                 detailed_results.append({

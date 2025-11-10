@@ -1,13 +1,5 @@
-version: '3.8'
-
-# This creates a shared, temporary disk space.
-# All services can read/write to this space.
-volumes:
-  scan-cache:
-
 services:
   # Service 1: The API Gateway (The "Manager")
-  # This is the ONLY service the public talks to.
   api-gateway:
     build:
       context: .
@@ -15,9 +7,8 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      # Mount the code and the shared disk
       - .:/app
-      - scan-cache:/tmp/scans
+      - /root/mariadb-docs:/scan_data
     command: python api_gateway.py
     depends_on:
       - content-scanner
@@ -30,8 +21,7 @@ services:
       dockerfile: Dockerfile.base
     volumes:
       - .:/app
-      - scan-cache:/tmp/scans
-    # Internal port, not visible to the public
+      - /root/mariadb-docs:/scan_data
     expose:
       - "5001"
     command: python content_scanner_service.py
@@ -43,8 +33,7 @@ services:
       dockerfile: Dockerfile.base
     volumes:
       - .:/app
-      - scan-cache:/tmp/scans
-    # Internal port, not visible to the public
+      - /root/mariadb-docs:/scan_data
     expose:
       - "5002"
     command: python http_auditor_service.py
