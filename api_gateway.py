@@ -18,7 +18,7 @@ SERVICES = {
 }
 SCAN_CACHE_DIR = '/tmp/scans'
 
-# --- NEW HELPER: GitHub URL Converter (FIXED) ---
+# --- NEW HELPER: GitHub URL Converter (FIXED FOR REAL) ---
 def convert_github_url(item_url):
     """
     Converts a web-friendly GitHub URL (.../tree/main/folder)
@@ -45,58 +45,49 @@ def convert_github_url(item_url):
         if not branch_indicator:
             # URL is likely just https://github.com/user/repo
             # We assume 'trunk' (default branch)
-            return f"{base_repo_url}.git/trunk/"
+            return f"{base_repo_url}/trunk"
 
         idx = parts.index(branch_indicator)
         branch_name = parts[idx + 1]
         sub_path = "/".join(parts[idx+2:])
         
-        # *** THIS IS THE FIX ***
-        # If the branch is 'main', we use 'trunk'.
-        # For any other branch, we use /branches/branch_name
-        # And we MUST add .git to the repo name
-        
-        repo_with_git = f"{base_repo_url}.git"
+        # *** THIS IS THE FINAL FIX ***
+        # The correct format is .../REPO/trunk/FOLDER (no .git)
         
         if branch_name == 'main':
-            svn_url = f"{repo_with_git}/trunk/{sub_path}"
+            svn_url = f"{base_repo_url}/trunk/{sub_path}"
         else:
-            svn_url = f"{repo_with_git}/branches/{branch_name}/{sub_path}"
+            # Handle other branches
+            svn_url = f"{base_repo_url}/branches/{branch_name}/{sub_path}"
         
         return svn_url
         
     except Exception:
-        # If parsing fails, just return the original URL and let SVN try
         return item_url
 
-# --- Helper: Download from GitHub (UPDATED WITH BETTER ERRORING) ---
+# --- Helper: Download from GitHub ---
 def download_repo_item(item_url):
     """
     Downloads a folder or file from GitHub using svn export.
     Returns the local path to the downloaded item and its name.
     """
     try:
-        # --- NEW: Convert the URL first! ---
         svn_url = convert_github_url(item_url)
         
         scan_id = str(uuid.uuid4())
-        # Get the original name from the *original* URL
-        item_name = item_url.split('/')[-1]
+        item_name = item_url.split('/')[-1] # Get the original name
         local_path = os.path.join(SCAN_CACHE_DIR, scan_id, item_name)
         
         cmd = ['svn', 'export', '--quiet', '--force', svn_url, local_path]
         
-        # Capture output for better erroring
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         
         return local_path, item_name, None
     except subprocess.CalledProcessError as e:
-        # This is the new, better error message
-        error_message = f"SVN Export failed. URL '{svn_url}' is invalid. Error: {e.stderr}"
+        error_message = f"SVN Export failed. Tried URL: '{svn_url}'. Error: {e.stderr}"
         return None, None, error_message
     except Exception as e:
         return None, None, str(e)
-# --- END UPDATE ---
 
 # --- Helper: Cleanup ---
 def cleanup_scan(local_path):
