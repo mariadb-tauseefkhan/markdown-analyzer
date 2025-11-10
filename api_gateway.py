@@ -33,27 +33,35 @@ def convert_github_url(item_url):
         # or /<user>/<repo>/blob/<branch>/<file>
         parts = parsed.path.split('/')
         
+        branch_indicator = None
         if 'tree' in parts:
-            idx = parts.index('tree')
+            branch_indicator = 'tree'
         elif 'blob' in parts:
-            idx = parts.index('blob')
-        else:
-            if 'trunk' in parts:
-                return item_url # It's already correct
-            # It's just the repo root, e.g., https://github.com/user/repo
-            user = parts[1]
-            repo = parts[2].replace('.git', '')
-            return f"https://github.com/{user}/{repo}/trunk" # Return the root trunk
+            branch_indicator = 'blob'
+        
+        # This is the base URL, e.g. https://github.com/user/repo
+        base_repo_url = f"https://{parsed.netloc}/{parts[1]}/{parts[2]}"
+        
+        if not branch_indicator:
+            # URL is likely just https://github.com/user/repo
+            # We assume 'trunk' (default branch)
+            return f"{base_repo_url}.git/trunk/"
 
-        # Rebuild the URL in SVN format
-        user = parts[1]
-        repo = parts[2].replace('.git', '')
-        # The path is everything *after* the branch name (which is at idx + 1)
-        sub_path = "/".join(parts[idx+2:]) 
+        idx = parts.index(branch_indicator)
+        branch_name = parts[idx + 1]
+        sub_path = "/".join(parts[idx+2:])
         
         # *** THIS IS THE FIX ***
-        # The correct format is .../REPO/trunk/FOLDER (no .git)
-        svn_url = f"https://github.com/{user}/{repo}/trunk/{sub_path}"
+        # If the branch is 'main', we use 'trunk'.
+        # For any other branch, we use /branches/branch_name
+        # And we MUST add .git to the repo name
+        
+        repo_with_git = f"{base_repo_url}.git"
+        
+        if branch_name == 'main':
+            svn_url = f"{repo_with_git}/trunk/{sub_path}"
+        else:
+            svn_url = f"{repo_with_git}/branches/{branch_name}/{sub_path}"
         
         return svn_url
         
@@ -84,7 +92,7 @@ def download_repo_item(item_url):
         return local_path, item_name, None
     except subprocess.CalledProcessError as e:
         # This is the new, better error message
-        error_message = f"SVN Export failed. Return code: {e.returncode}. Error: {e.stderr}"
+        error_message = f"SVN Export failed. URL '{svn_url}' is invalid. Error: {e.stderr}"
         return None, None, error_message
     except Exception as e:
         return None, None, str(e)
