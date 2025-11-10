@@ -30,31 +30,30 @@ def convert_github_url(item_url):
             return item_url # Not a github URL, pass it through
 
         # path will be /<user>/<repo>/tree/<branch>/<folder>
+        # or /<user>/<repo>/blob/<branch>/<file>
         parts = parsed.path.split('/')
         
-        # Find the 'tree' or 'blob' part
         if 'tree' in parts:
             idx = parts.index('tree')
         elif 'blob' in parts:
             idx = parts.index('blob')
         else:
-            # Maybe it's already an SVN URL or just the repo root
             if 'trunk' in parts:
                 return item_url # It's already correct
-            else:
-                # Assume it's the root of the repo, add /trunk
-                user = parts[1]
-                repo = parts[2]
-                return f"https://github.com/{user}/{repo}/trunk"
+            # It's just the repo root, e.g., https://github.com/user/repo
+            user = parts[1]
+            repo = parts[2].replace('.git', '')
+            return f"https://github.com/{user}/{repo}/trunk" # Return the root trunk
 
         # Rebuild the URL in SVN format
         user = parts[1]
         repo = parts[2].replace('.git', '')
-        # The path is everything *after* the branch
+        # The path is everything *after* the branch name (which is at idx + 1)
         sub_path = "/".join(parts[idx+2:]) 
         
-        # The correct format is .../REPO.git/trunk/FOLDER
-        svn_url = f"https://github.com/{user}/{repo}.git/trunk/{sub_path}"
+        # *** THIS IS THE FIX ***
+        # The correct format is .../REPO/trunk/FOLDER (no .git)
+        svn_url = f"https://github.com/{user}/{repo}/trunk/{sub_path}"
         
         return svn_url
         
@@ -62,7 +61,7 @@ def convert_github_url(item_url):
         # If parsing fails, just return the original URL and let SVN try
         return item_url
 
-# --- Helper: Download from GitHub ---
+# --- Helper: Download from GitHub (UPDATED WITH BETTER ERRORING) ---
 def download_repo_item(item_url):
     """
     Downloads a folder or file from GitHub using svn export.
@@ -73,7 +72,8 @@ def download_repo_item(item_url):
         svn_url = convert_github_url(item_url)
         
         scan_id = str(uuid.uuid4())
-        item_name = item_url.split('/')[-1] # Get the original name
+        # Get the original name from the *original* URL
+        item_name = item_url.split('/')[-1]
         local_path = os.path.join(SCAN_CACHE_DIR, scan_id, item_name)
         
         cmd = ['svn', 'export', '--quiet', '--force', svn_url, local_path]
@@ -83,10 +83,12 @@ def download_repo_item(item_url):
         
         return local_path, item_name, None
     except subprocess.CalledProcessError as e:
+        # This is the new, better error message
         error_message = f"SVN Export failed. Return code: {e.returncode}. Error: {e.stderr}"
         return None, None, error_message
     except Exception as e:
         return None, None, str(e)
+# --- END UPDATE ---
 
 # --- Helper: Cleanup ---
 def cleanup_scan(local_path):
@@ -98,12 +100,17 @@ def cleanup_scan(local_path):
 # --- API: Serve the API Docs ---
 @app.route('/')
 def serve_index():
+    """Redirects root to the API docs."""
     return send_from_directory('.', 'api.html')
+
 @app.route('/api')
 def serve_api_docs():
+    """Serves the interactive API documentation page."""
     return send_from_directory('.', 'api.html')
+
 @app.route('/openapi.yaml')
 def serve_openapi_spec():
+    """Serves the raw OpenAPI spec file."""
     return send_from_directory('.', 'openapi.yaml')
 # --- END API DOCS ---
 
