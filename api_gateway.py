@@ -18,87 +18,112 @@ SERVICES = {
 }
 SCAN_CACHE_DIR = '/tmp/scans'
 
-
-# --- (((( THIS IS THE NEW, CORRECT DOWNLOAD FUNCTION )))) ---
+# --- (((( THIS IS THE NEW, GITHUB API DOWNLOADER )))) ---
 
 def parse_github_url(item_url):
     """
-    Parses a .../tree/main/folder URL into its components.
+    Parses a .../tree/main/folder URL into its GitHub API components.
     """
     try:
         parsed = urlparse(item_url)
         if "github.com" not in parsed.netloc:
-            return None, None, None, "Not a GitHub URL"
+            return None, None, None, None, "Not a GitHub URL"
 
         parts = parsed.path.split('/')
-        # parts = ['', 'user', 'repo', 'tree', 'branch', 'folder', 'subfolder']
-        
-        user = parts[1]
+        # /user/repo/tree/branch/folder...
+        owner = parts[1]
         repo = parts[2].replace('.git', '')
-        repo_url = f"https://github.com/{user}/{repo}.git"
         
         branch_indicator = 'tree'
         if 'blob' in parts:
             branch_indicator = 'blob'
         
         if branch_indicator not in parts:
-             return repo_url, "main", "", "URL does not contain /tree/ or /blob/. Assuming root." # Best guess for root
+             return owner, repo, "main", "", "URL does not contain /tree/ or /blob/. Assuming root."
 
         idx = parts.index(branch_indicator)
         branch = parts[idx + 1]
-        folder_path = "/".join(parts[idx+2:])
+        path = "/".join(parts[idx+2:])
         
-        return repo_url, branch, folder_path, None
+        return owner, repo, branch, path, None
     except Exception as e:
-        return None, None, None, f"URL Parsing failed: {e}"
+        return None, None, None, None, f"URL Parsing failed: {e}"
+
+def download_github_contents(api_url, local_download_path):
+    """
+    Recursively downloads files and folders from the GitHub contents API.
+    """
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    # NOTE: For private repos, you'd add:
+    # "Authorization": "token YOUR_GITHUB_TOKEN"
+    
+    response = requests.get(api_url, headers=headers)
+    response.raise_for_status() # Fails on 404, which is what we want
+    
+    items = response.json()
+    
+    # If it's a single file (not a list), handle it
+    if not isinstance(items, list):
+        items = [items]
+
+    for item in items:
+        # We must create the full path on our local disk
+        item_local_path = os.path.join(local_download_path, item['name'])
+        
+        if item['type'] == 'file':
+            # Download the file content
+            file_response = requests.get(item['download_url'])
+            file_response.raise_for_status()
+            # Ensure the directory for the file exists
+            os.makedirs(os.path.dirname(item_local_path), exist_ok=True)
+            with open(item_local_path, 'wb') as f:
+                f.write(file_response.content)
+        
+        elif item['type'] == 'dir':
+            # It's a folder, create it and recurse
+            os.makedirs(item_local_path, exist_ok=True)
+            # Call this function again with the API URL for that sub-folder
+            download_github_contents(item['url'], item_local_path)
 
 def download_repo_item(item_url):
     """
-    Downloads a single folder or file from GitHub using git sparse-checkout.
-    This version does NOT use --cone mode, which is more reliable.
+    Downloads a folder or file from GitHub using the GitHub API.
+    Returns the *full path* to the *downloaded item*.
     """
     scan_id = str(uuid.uuid4())
-    # This is the temporary directory where we clone the *empty* repo
-    scan_dir = os.path.join(SCAN_CACHE_DIR, scan_id)
+    # This is the base temporary directory
+    base_download_dir = os.path.join(SCAN_CACHE_DIR, scan_id)
+    os.makedirs(base_download_dir, exist_ok=True)
     
     try:
-        repo_url, branch, item_path, error = parse_github_url(item_url)
+        owner, repo, branch, path, error = parse_github_url(item_url)
         if error:
             return None, None, None, error
 
-        # 1. Clone the repo, but don't download any files yet
-        cmd = ['git', 'clone', '--no-checkout', '--depth', '1', '-b', branch, repo_url, scan_dir]
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        # This is the API URL for the *contents* of the path
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={branch}"
+        
+        # This is the path *on our disk* where it will be saved
+        # e.g., /tmp/scans/uuid/mariadb-cloud
+        item_name = os.path.basename(path) or repo # Use repo name if path is empty
+        final_local_path = os.path.join(base_download_dir, item_name)
 
-        # 2. Init sparse checkout (NON-CONE mode)
-        cmd = ['git', 'sparse-checkout', 'init']
-        subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=scan_dir)
-
-        # 3. Set the *one* folder/file we want to download
-        # This will write the path to .git/info/sparse-checkout
-        cmd = ['git', 'sparse-checkout', 'set', item_path]
-        subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=scan_dir)
-
-        # 4. Now, download *only* that item
-        cmd = ['git', 'checkout', branch]
-        subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=scan_dir)
+        # Start the recursive download
+        download_github_contents(api_url, final_local_path)
         
-        # 5. Return the full path to the *specific item* we downloaded
-        final_path = os.path.join(scan_dir, item_path)
-        item_name = os.path.basename(item_path) # e.g., "mariadb-cloud" or "README.md"
+        # Validation: Check if anything was actually downloaded
+        if not os.listdir(final_local_path):
+             raise Exception(f"Path '{path}' was found but is empty or download failed.")
         
-        # *** NEW VALIDATION STEP ***
-        if not os.path.exists(final_path):
-            raise Exception(f"Path '{item_path}' was not found in the repository. Check spelling and case-sensitivity.")
+        return final_local_path, item_name, base_download_dir, None
         
-        return final_path, item_name, scan_dir, None # Return the *base* scan_dir for cleanup
-        
-    except subprocess.CalledProcessError as e:
-        error_message = f"Git operation failed. Repo: {repo_url}, Path: {item_path}. Error: {e.stderr}"
-        if os.path.exists(scan_dir): shutil.rmtree(scan_dir) # Clean up failed attempt
+    except requests.exceptions.HTTPError as e:
+        # This will catch 404s if the path is wrong
+        error_message = f"GitHub API request failed. Status Code: {e.response.status_code}. Error: {e.response.text}"
+        if os.path.exists(base_download_dir): shutil.rmtree(base_download_dir)
         return None, None, None, error_message
     except Exception as e:
-        if os.path.exists(scan_dir): shutil.rmtree(scan_dir) # Clean up failed attempt
+        if os.path.exists(base_download_dir): shutil.rmtree(base_download_dir)
         return None, None, None, str(e)
 # --- (((( END OF NEW DOWNLOAD FUNCTION )))) ---
 
@@ -144,10 +169,10 @@ def http_codes():
             headers={'Accept': request.headers.get('Accept')}
         )
         response.raise_for_status()
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return response.content, response.status_code, response.headers.items()
     except Exception as e:
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return jsonify({'error': f"Error connecting to http-auditor: {e}"}), 500
 
 # --- API 2: Code Block Scanner ---
@@ -167,10 +192,10 @@ def code_blocks():
             headers={'Accept': request.headers.get('Accept')}
         )
         response.raise_for_status()
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return response.content, response.status_code, response.headers.items()
     except Exception as e:
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
 
 # --- API 3: Link Scanner ---
@@ -190,10 +215,10 @@ def links():
             headers={'Accept': request.headers.get('Accept')}
         )
         response.raise_for_status()
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return response.content, response.status_code, response.headers.items()
     except Exception as e:
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
 
 # --- API 4: Text Scanner ---
@@ -213,10 +238,10 @@ def text_scanner():
             headers={'Accept': request.headers.get('Accept')}
         )
         response.raise_for_status()
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return response.content, response.status_code, response.headers.items()
     except Exception as e:
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
 
 # --- API 5: Folder Analytics ---
@@ -235,10 +260,10 @@ def analytics():
             json={'local_path': local_path}
         )
         response.raise_for_status()
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return response.json(), response.status_code
     except Exception as e:
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
 
 # --- API 6: Folder Lister ---
@@ -257,10 +282,10 @@ def list_folder():
             json={'local_path': local_path, 'folder_name': folder_name}
         )
         response.raise_for_status()
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return response.json(), response.status_code
     except Exception as e:
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
 
 # --- API 7: File Detail Extractor ---
@@ -279,10 +304,10 @@ def get_file_details():
             json={'local_path': local_path, 'file_name': file_name}
         )
         response.raise_for_status()
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return response.json(), response.status_code
     except Exception as e:
-        cleanup_scan(scan_dir)
+        cleanup_scan(scan_dir) 
         return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
 
 if __name__ == '__main__':

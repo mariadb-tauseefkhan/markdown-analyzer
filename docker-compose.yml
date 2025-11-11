@@ -3,7 +3,7 @@ services:
   api-gateway:
     build:
       context: .
-      dockerfile: Dockerfile.gateway
+      dockerfile: Dockerfile.base # <-- THIS IS THE CHANGE
     ports:
       - "5000:5000"
     volumes:
@@ -22,8 +22,6 @@ services:
       dockerfile: Dockerfile.base
     volumes:
       - .:/app
-      # *** THIS IS THE FIX ***
-      # Now this service READS from the SAME shared disk
       - scan-cache:/tmp/scans
     expose:
       - "5001"
@@ -36,8 +34,6 @@ services:
       dockerfile: Dockerfile.base
     volumes:
       - .:/app
-      # *** THIS IS THE FIX ***
-      # This service also READS from the SAME shared disk
       - scan-cache:/tmp/scans
     expose:
       - "5002"
