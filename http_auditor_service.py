@@ -11,25 +11,6 @@ from collections import Counter
 app = Flask(__name__)
 MAX_LINK_CHECKER_THREADS = 10
 
-# --- Helper: Read File ---
-def read_file_content(full_path):
-    try:
-        with open(full_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        title = (re.search(r'^\s*#\s+(.+)', content, re.MULTILINE) or [None, 'No H1 Title Found'])[1].strip()
-        return content, title, None
-    except Exception as e:
-        return None, None, f"Failed to read file: {e}"
-
-# --- Helper: Find all .md files ---
-def find_markdown_files(local_path):
-    md_files = []
-    for root, _, files in os.walk(local_path):
-        for file in files:
-            if file.endswith('.md'):
-                md_files.append(os.path.join(root, file))
-    return md_files
-
 # --- Helper: 404 Checker ---
 def check_link(link, results_list, lock):
     try:
@@ -92,18 +73,17 @@ def create_response(data, analytics=None):
 @app.route('/run_http_audit', methods=['POST'])
 def run_http_audit():
     data = request.json
-    local_path = data.get('local_path')
-    http_codes_to_find = data.get('http_codes', []) # e.g., ["404", "301"] or ["*"]
+    files = data.get('files', []) # This is now a list of {'path': ..., 'content': ...}
+    http_codes_to_find = data.get('http_codes', []) 
     
-    md_files = find_markdown_files(local_path)
     links_to_check = []
     file_link_map = {} # Maps link URL -> list of files/anchors
 
-    for f in md_files:
-        content, title, error = read_file_content(f)
-        if error: continue
-        rel_file = os.path.relpath(f, local_path)
-        
+    for file_data in files:
+        content = file_data['content']
+        title = (re.search(r'^\s*#\s+(.+)', content, re.MULTILINE) or [None, 'No H1 Title Found'])[1].strip()
+        rel_file = file_data['path']
+
         # Find all external links and images
         links_in_file = re.findall(r'\[(.*?)\]\((https?://[^\)]+)\)', content)
         images_in_file = re.findall(r'!\[.*?\]\((https?://[^\)]+)\)', content)
@@ -132,7 +112,6 @@ def run_http_audit():
     detailed_results = []
     for res in link_results:
         # Check if this link's status is one the user asked for
-        # If user wants "*", we include all.
         status_str = str(res['status_code'])
         if ("*" in http_codes_to_find or 
             status_str in http_codes_to_find or 

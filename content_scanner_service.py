@@ -7,25 +7,6 @@ from collections import Counter
 
 app = Flask(__name__)
 
-# --- Helper: Read File ---
-def read_file_content(full_path):
-    try:
-        with open(full_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        title = (re.search(r'^\s*#\s+(.+)', content, re.MULTILINE) or [None, 'No H1 Title Found'])[1].strip()
-        return content, title, None
-    except Exception as e:
-        return None, None, f"Failed to read file: {e}"
-
-# --- Helper: Find all .md files in a path ---
-def find_markdown_files(local_path):
-    md_files = []
-    for root, _, files in os.walk(local_path):
-        for file in files:
-            if file.endswith('.md'):
-                md_files.append(os.path.join(root, file))
-    return md_files
-
 # --- Helper: CSV Generation ---
 def generate_csv(data, headers):
     output = io.StringIO()
@@ -36,15 +17,12 @@ def generate_csv(data, headers):
 
 # --- Helper: JSON or CSV Response ---
 def create_response(data, analytics=None):
-    # Check if client prefers CSV
     if request.headers.get('Accept') == 'text/csv':
         if not data.get('details'):
             return "No details to export", 400
-        # Dynamically get headers from the first item
         headers = data['details'][0].keys()
         return generate_csv(data['details'], headers)
     
-    # Default to JSON
     if analytics:
         data['analytics'] = analytics
     return jsonify(data)
@@ -53,19 +31,17 @@ def create_response(data, analytics=None):
 @app.route('/run_code_blocks', methods=['POST'])
 def run_code_blocks():
     data = request.json
-    local_path = data.get('local_path')
+    files = data.get('files', []) # This is now a list of {'path': ..., 'content': ...}
     scan_type = data.get('scan_type')
     language = data.get('language', '').lower()
     
-    md_files = find_markdown_files(local_path)
     detailed_results = []
     files_with_matches = 0
     
-    for f in md_files:
-        content, title, error = read_file_content(f)
-        if error: continue
-        
-        rel_file = os.path.relpath(f, local_path)
+    for file_data in files:
+        content = file_data['content']
+        title = (re.search(r'^\s*#\s+(.+)', content, re.MULTILINE) or [None, 'No H1 Title Found'])[1].strip()
+        rel_file = file_data['path']
         found_on_page = False
         
         if scan_type == 'untagged':
@@ -83,27 +59,26 @@ def run_code_blocks():
         if found_on_page:
             files_with_matches += 1
 
-    analytics = {'files_scanned': len(md_files), 'files_with_matches': files_with_matches}
+    analytics = {'files_scanned': len(files), 'files_with_matches': files_with_matches}
     return create_response({'details': detailed_results}, analytics)
 
 # --- Endpoint 2: Link Scanner ---
 @app.route('/run_link_scan', methods=['POST'])
 def run_link_scan():
     data = request.json
-    local_path = data.get('local_path')
+    files = data.get('files', [])
     scan_type = data.get('scan_type')
     url_pattern = data.get('url_pattern', '')
     
-    md_files = find_markdown_files(local_path)
     detailed_results = []
     total_links_found = 0
     files_with_matches = 0
     
-    for f in md_files:
-        content, title, error = read_file_content(f)
-        if error: continue
+    for file_data in files:
+        content = file_data['content']
+        title = (re.search(r'^\s*#\s+(.+)', content, re.MULTILINE) or [None, 'No H1 Title Found'])[1].strip()
+        rel_file = file_data['path']
         
-        rel_file = os.path.relpath(f, local_path)
         links_in_file = re.findall(r'\[(.*?)\]\(((?!#)\S+)\)', content)
         found_on_page = False
         
@@ -124,14 +99,14 @@ def run_link_scan():
         if found_on_page:
             files_with_matches += 1
             
-    analytics = {'files_scanned': len(md_files), 'files_with_matches': files_with_matches, 'total_links_found': total_links_found}
+    analytics = {'files_scanned': len(files), 'files_with_matches': files_with_matches, 'total_links_found': total_links_found}
     return create_response({'details': detailed_results}, analytics)
 
 # --- Endpoint 3: Text Scanner ---
 @app.route('/run_text_scan', methods=['POST'])
 def run_text_scan():
     data = request.json
-    local_path = data.get('local_path')
+    files = data.get('files', [])
     regex_pattern = data.get('regex')
     case_sensitive = data.get('case_sensitive', False)
     
@@ -144,16 +119,14 @@ def run_text_scan():
     except re.error as e:
         return jsonify({'error': f"Invalid Regex: {e}"}), 400
         
-    md_files = find_markdown_files(local_path)
     detailed_results = []
     total_matches_found = 0
     files_with_matches = 0
     
-    for f in md_files:
-        content, title, error = read_file_content(f)
-        if error: continue
-        
-        rel_file = os.path.relpath(f, local_path)
+    for file_data in files:
+        content = file_data['content']
+        title = (re.search(r'^\s*#\s+(.+)', content, re.MULTILINE) or [None, 'No H1 Title Found'])[1].strip()
+        rel_file = file_data['path']
         found_on_page = False
         
         lines = content.split('\n')
@@ -166,28 +139,25 @@ def run_text_scan():
         if found_on_page:
             files_with_matches += 1
 
-    analytics = {'files_scanned': len(md_files), 'files_with_matches': files_with_matches, 'total_matches_found': total_matches_found}
+    analytics = {'files_scanned': len(files), 'files_with_matches': files_with_matches, 'total_matches_found': total_matches_found}
     return create_response({'details': detailed_results}, analytics)
 
 # --- Endpoint 4: Folder Analytics ---
 @app.route('/run_analytics', methods=['POST'])
 def run_analytics():
     data = request.json
-    local_path = data.get('local_path')
+    files = data.get('files', [])
     
-    md_files = find_markdown_files(local_path)
-    if not md_files:
+    if not files:
         return jsonify({'analytics': {'files_scanned': 0}})
 
     analytics = {
-        'files_scanned': len(md_files), 'total_lines': 0, 'total_links': 0,
+        'files_scanned': len(files), 'total_lines': 0, 'total_links': 0,
         'total_external_links': 0, 'total_code_blocks': 0, 'total_untagged_blocks': 0
     }
     
-    for f in md_files:
-        content, _, error = read_file_content(f)
-        if error: continue
-        
+    for file_data in files:
+        content = file_data['content']
         analytics['total_lines'] += len(content.split('\n'))
         links = re.findall(r'\[(.*?)\]\(((?!#)\S+)\)', content)
         analytics['total_links'] += len(links)
@@ -199,40 +169,19 @@ def run_analytics():
 
     return jsonify({'analytics': analytics})
 
-# --- Endpoint 5: Folder Lister ---
+# --- Endpoint 5: Folder Lister (No longer used by gateway) ---
 @app.route('/run_list_folder', methods=['POST'])
 def run_list_folder():
-    data = request.json
-    local_path = data.get('local_path')
-    folder_name = data.get('folder_name')
-    
-    files = []
-    sub_folders = []
-    try:
-        for item in os.listdir(local_path):
-            if os.path.isdir(os.path.join(local_path, item)):
-                sub_folders.append(item)
-            else:
-                files.append(item)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-        
-    return jsonify({
-        'folder_path': folder_name,
-        'files': sorted(files),
-        'sub_folders': sorted(sub_folders)
-    })
+    return jsonify({'error': 'This endpoint is deprecated and handled by the gateway'}), 500
 
 # --- Endpoint 6: File Detail Extractor ---
 @app.route('/run_get_file_details', methods=['POST'])
 def run_get_file_details():
     data = request.json
-    local_path = data.get('local_path') # This is the full path to the *file*
-    file_name = data.get('file_name')
+    file_data = data.get('file') # Expects a single {'path':..., 'content':...}
     
-    content, title, error = read_file_content(local_path)
-    if error:
-        return jsonify({'error': error}), 500
+    content = file_data['content']
+    title = (re.search(r'^\s*#\s+(.+)', content, re.MULTILINE) or [None, 'No H1 Title Found'])[1].strip()
 
     headers = [{'level': len(h[0]), 'text': h[1].strip()} for h in re.findall(r'^(#+)\s+(.+)', content, re.MULTILINE)]
     links = [{'text': t, 'url': u, 'type': 'external' if u.startswith('http') else 'internal'} for t, u in re.findall(r'\[(.*?)\]\(((?!#)\S+)\)', content)]
@@ -240,7 +189,7 @@ def run_get_file_details():
     code_blocks = [{'language': l.strip() or 'untagged'} for l in re.findall(r'^```(.*)$', content, re.MULTILINE)]
 
     return jsonify({
-        'file': file_name,
+        'file': file_data['path'],
         'title': title,
         'analytics': {
             'line_count': len(content.split('\n')),
