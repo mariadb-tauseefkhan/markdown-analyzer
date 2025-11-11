@@ -8,7 +8,8 @@ services:
       - "5000:5000"
     volumes:
       - .:/app
-      - /root/mariadb-docs:/scan_data
+      # This service WRITES to the shared disk
+      - scan-cache:/tmp/scans
     command: python api_gateway.py
     depends_on:
       - content-scanner
@@ -21,7 +22,9 @@ services:
       dockerfile: Dockerfile.base
     volumes:
       - .:/app
-      - /root/mariadb-docs:/scan_data
+      # *** THIS IS THE FIX ***
+      # Now this service READS from the SAME shared disk
+      - scan-cache:/tmp/scans
     expose:
       - "5001"
     command: python content_scanner_service.py
@@ -33,7 +36,13 @@ services:
       dockerfile: Dockerfile.base
     volumes:
       - .:/app
-      - /root/mariadb-docs:/scan_data
+      # *** THIS IS THE FIX ***
+      # This service also READS from the SAME shared disk
+      - scan-cache:/tmp/scans
     expose:
       - "5002"
     command: python http_auditor_service.py
+
+# This creates the one shared disk
+volumes:
+  scan-cache:
