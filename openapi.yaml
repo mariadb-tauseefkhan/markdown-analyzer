@@ -2,7 +2,7 @@ openapi: 3.0.0
 info:
   title: Markdown Analytics Suite API (v1)
   description: "Stateless API for the Markdown Analytics Suite. The gateway auto-converts GitHub /tree/main/ URLs to /trunk/ URLs."
-  version: 1.1.0
+  version: 1.2.0
 servers:
   - url: /
     description: Current server
@@ -52,6 +52,11 @@ paths:
                   type: string
                   description: "Required if scan_type is 'specific_language'"
                   example: "bash"
+            # *** THIS IS THE FIX ***
+            example:
+              folder_in_repo: "https://github.com/mariadb-corporation/mariadb-docs/tree/main/mariadb-cloud"
+              scan_type: "untagged"
+              language: ""
       responses:
         '200':
           $ref: '#/components/responses/ReportResponse'
@@ -78,6 +83,11 @@ paths:
                   type: string
                   description: "Required if scan_type is 'starting_with'"
                   example: "https://github.com/"
+            # *** THIS IS THE FIX ***
+            example:
+              folder_in_repo: "https://github.com/mariadb-corporation/mariadb-docs/tree/main/mariadb-cloud"
+              scan_type: "starting_with"
+              url_pattern: "https://github.com/"
       responses:
         '200':
           $ref: '#/components/responses/ReportResponse'
@@ -104,6 +114,11 @@ paths:
                 case_sensitive:
                   type: boolean
                   default: false
+            # *** THIS IS THE FIX ***
+            example:
+              folder_in_repo: "https://github.com/mariadb-corporation/mariadb-docs/tree/main/mariadb-cloud"
+              regex: "(TODO|FIXME):"
+              case_sensitive: true
       responses:
         '200':
           $ref: '#/components/responses/ReportResponse'
@@ -154,6 +169,10 @@ paths:
                   items: { type: string }
                   description: "List of status codes/categories. Use '*' for all."
                   example: ["404", "4xx", "3xx", "Other"]
+            # *** THIS IS THE FIX ***
+            example:
+              folder_in_repo: "https://github.com/mariadb-corporation/mariadb-docs/tree/main/mariadb-cloud"
+              http_codes: ["404", "4xx"]
       responses:
         '200':
           $ref: '#/components/responses/ReportResponse'
@@ -192,6 +211,9 @@ components:
             type: object
             properties:
               folder_in_repo: { $ref: '#/components/schemas/FolderRepoPath' }
+          # *** THIS IS THE FIX ***
+          example:
+            folder_in_repo: "https://github.com/mariadb-corporation/mariadb-docs/tree/main/mariadb-cloud"
     FileRepo:
       required: true
       content:
@@ -200,6 +222,9 @@ components:
             type: object
             properties:
               file_in_repo: { $ref: '#/components/schemas/FileRepoPath' }
+          # *** THIS IS THE FIX ***
+          example:
+            file_in_repo: "https://github.com/mariadb-corporation/mariadb-docs/tree/main/mariadb-cloud/README.md"
 
   responses:
     ReportResponse:
