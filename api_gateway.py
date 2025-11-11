@@ -16,110 +16,57 @@ SERVICES = {
     'content_scanner': 'http://content-scanner:5001',
     'http_auditor': 'http://http-auditor:5002'
 }
-# The gateway now handles all file operations.
-# The other services will receive pure data.
-
-# --- (((( THIS IS THE NEW, GITHUB API DOWNLOADER )))) ---
+SCAN_CACHE_DIR = '/tmp/scans'
+# --- NEW: Timeouts in seconds ---
+FAST_SCAN_TIMEOUT = 60  # 1 minute for fast scans
+SLOW_SCAN_TIMEOUT = 600 # 10 minutes for slow link audit
 
 def parse_github_url(item_url):
-    """
-    Parses a .../tree/main/folder URL into its GitHub API components.
-    """
     try:
         parsed = urlparse(item_url)
         if "github.com" not in parsed.netloc:
-            return None, None, None, None, "Not a GitHub URL"
-        
-        # We must unquote the URL path in case of spaces
-        path_parts = unquote(parsed.path).split('/')
-        # /user/repo/tree/branch/folder...
-        
-        owner = path_parts[1]
-        repo = path_parts[2].replace('.git', '')
-        
+            return None, None, None, "Not a GitHub URL"
+        parts = unquote(parsed.path).split('/')
+        user = parts[1]
+        repo = parts[2].replace('.git', '')
+        repo_url = f"https://github.com/{user}/{repo}.git"
         branch_indicator = 'tree'
-        if 'blob' in path_parts:
-            branch_indicator = 'blob'
-        
-        if branch_indicator not in path_parts:
-             # URL is likely just https://github.com/user/repo
-             return owner, repo, "main", "", None
-
-        idx = path_parts.index(branch_indicator)
-        branch = path_parts[idx + 1]
-        path = "/".join(path_parts[idx+2:])
-        
-        return owner, repo, branch, path, None
+        if 'blob' in parts: branch_indicator = 'blob'
+        if branch_indicator not in parts:
+             return repo_url, "main", "", "URL does not contain /tree/ or /blob/. Assuming root."
+        idx = parts.index(branch_indicator)
+        branch = parts[idx + 1]
+        folder_path = "/".join(parts[idx+2:])
+        return repo_url, branch, folder_path, None
     except Exception as e:
-        return None, None, None, None, f"URL Parsing failed: {e}"
+        return None, None, None, f"URL Parsing failed: {e}"
 
-def download_files_from_api(api_url, files_list, base_path=""):
-    """
-    Recursively fetches file content from the GitHub API.
-    This does NOT write to disk.
-    """
-    headers = {"Accept": "application/vnd.github.v3+json"}
-    # In a real app, you'd add: "Authorization": "token YOUR_GITHUB_TOKEN"
-    # to avoid rate limiting
-    
+def download_repo_item(item_url):
+    scan_id = str(uuid.uuid4())
+    scan_dir = os.path.join(SCAN_CACHE_DIR, scan_id)
     try:
-        response = requests.get(api_url, headers=headers)
-        response.raise_for_status() # Fails on 404, which is what we want
-        items = response.json()
-    except requests.exceptions.HTTPError:
-         # This happens when the URL is case-sensitive (e.g. /Serverless)
-         # We try to auto-correct by lowercasing the path
-        try:
-            response = requests.get(api_url.lower(), headers=headers)
-            response.raise_for_status()
-            items = response.json()
-        except Exception:
-            raise Exception(f"Failed to fetch from GitHub API. Check URL and case-sensitivity.")
-
-    
-    if not isinstance(items, list):
-        items = [items] # Handle single file response
-
-    for item in items:
-        item_path = os.path.join(base_path, item['name'])
-        if item['type'] == 'file' and item['name'].endswith('.md'):
-            # It's a markdown file. Get its content.
-            try:
-                file_response = requests.get(item['download_url'])
-                file_response.raise_for_status()
-                files_list.append({
-                    'path': item_path,
-                    'content': file_response.text
-                })
-            except Exception:
-                # Skip un-downloadable files
-                pass
-        
-        elif item['type'] == 'dir':
-            # It's a folder, recurse
-            download_files_from_api(item['url'], files_list, item_path)
-
-def get_repo_files(item_url):
-    """
-    Gets all .md file contents from a GitHub folder URL.
-    """
-    try:
-        owner, repo, branch, path, error = parse_github_url(item_url)
-        if error:
-            return None, error
-
-        # This is the API URL for the *contents* of the path
-        api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={branch}"
-        
-        files_list = [] # This will be populated by the recursive function
-        download_files_from_api(api_url, files_list)
-        
-        return files_list, None
-        
+        repo_url, branch, item_path, error = parse_github_url(item_url)
+        if error: return None, None, None, error
+        cmd = ['git', 'clone', '--no-checkout', '--depth', '1', '-b', branch, repo_url, scan_dir]
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        cmd = ['git', 'sparse-checkout', 'init']
+        subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=scan_dir)
+        cmd = ['git', 'sparse-checkout', 'set', item_path]
+        subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=scan_dir)
+        cmd = ['git', 'checkout', branch]
+        subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=scan_dir)
+        final_path = os.path.join(scan_dir, item_path)
+        item_name = os.path.basename(item_path) 
+        if not os.path.exists(final_path):
+            raise Exception(f"Path '{item_path}' was not found in the repository. Check spelling and case-sensitivity.")
+        return final_path, item_name, scan_dir, None 
+    except subprocess.CalledProcessError as e:
+        error_message = f"Git operation failed. Repo: {repo_url}, Path: {item_path}. Error: {e.stderr}"
+        if os.path.exists(scan_dir): shutil.rmtree(scan_dir) 
+        return None, None, None, error_message
     except Exception as e:
-        return None, str(e)
-# --- (((( END OF NEW DOWNLOAD FUNCTION )))) ---
-
+        if os.path.exists(scan_dir): shutil.rmtree(scan_dir)
+        return None, None, None, str(e)
 
 # --- API: Serve the API Docs ---
 @app.route('/')
@@ -131,7 +78,6 @@ def serve_api_docs():
 @app.route('/openapi.yaml')
 def serve_openapi_spec():
     return send_from_directory('.', 'openapi.yaml')
-# --- END API DOCS ---
 
 # --- API 1: HTTP Code Auditor ---
 @app.route('/api/v1/http_codes', methods=['POST'])
@@ -142,22 +88,22 @@ def http_codes():
     if not folder_url or not http_codes:
         return jsonify({'error': 'Missing folder_in_repo or http_codes'}), 400
 
-    # 1. Get all file contents
-    files_list, error = get_repo_files(folder_url)
+    local_path, _, scan_dir, error = download_repo_item(folder_url)
     if error: return jsonify({'error': error}), 500
-    if not files_list: return jsonify({'analytics': {'total_links_checked': 0}, 'details': []})
-
-    # 2. Call the microservice with the *content*
+    
     try:
         response = requests.post(
             f"{SERVICES['http_auditor']}/run_http_audit",
-            json={'files': files_list, 'http_codes': http_codes},
-            headers={'Accept': request.headers.get('Accept')}
+            json={'local_path': local_path, 'scan_dir': scan_dir, 'http_codes': http_codes},
+            headers={'Accept': request.headers.get('Accept')},
+            timeout=SLOW_SCAN_TIMEOUT # <-- NEW: Long timeout for slow scan
         )
         response.raise_for_status()
         return response.content, response.status_code, response.headers.items()
+    except requests.exceptions.Timeout:
+        return jsonify({'error': 'Link Auditor service timed out (took > 10 minutes)'}), 504
     except Exception as e:
-        return jsonify({'error': f"Error connecting to http-auditor: {e}"}), 500
+        return jsonify({'error': f"Error connecting to http-auditor: {e}"}), 502
 
 # --- API 2: Code Block Scanner ---
 @app.route('/api/v1/code_blocks', methods=['POST'])
@@ -166,20 +112,22 @@ def code_blocks():
     folder_url = data.get('folder_in_repo')
     if not folder_url: return jsonify({'error': 'Missing folder_in_repo'}), 400
     
-    files_list, error = get_repo_files(folder_url)
+    local_path, _, scan_dir, error = download_repo_item(folder_url)
     if error: return jsonify({'error': error}), 500
-    if not files_list: return jsonify({'analytics': {'files_scanned': 0}, 'details': []})
-
+    
     try:
         response = requests.post(
             f"{SERVICES['content_scanner']}/run_code_blocks",
-            json={'files': files_list, 'scan_type': data.get('scan_type'), 'language': data.get('language')},
-            headers={'Accept': request.headers.get('Accept')}
+            json={'local_path': local_path, 'scan_dir': scan_dir, 'scan_type': data.get('scan_type'), 'language': data.get('language')},
+            headers={'Accept': request.headers.get('Accept')},
+            timeout=FAST_SCAN_TIMEOUT # <-- NEW: Fast timeout
         )
         response.raise_for_status()
         return response.content, response.status_code, response.headers.items()
+    except requests.exceptions.Timeout:
+        return jsonify({'error': 'Content Scanner service timed out'}), 504
     except Exception as e:
-        return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
+        return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 502
 
 # --- API 3: Link Scanner ---
 @app.route('/api/v1/links', methods=['POST'])
@@ -188,20 +136,20 @@ def links():
     folder_url = data.get('folder_in_repo')
     if not folder_url: return jsonify({'error': 'Missing folder_in_repo'}), 400
 
-    files_list, error = get_repo_files(folder_url)
+    local_path, _, scan_dir, error = download_repo_item(folder_url)
     if error: return jsonify({'error': error}), 500
-    if not files_list: return jsonify({'analytics': {'files_scanned': 0}, 'details': []})
     
     try:
         response = requests.post(
             f"{SERVICES['content_scanner']}/run_link_scan",
-            json={'files': files_list, 'scan_type': data.get('scan_type'), 'url_pattern': data.get('url_pattern')},
-            headers={'Accept': request.headers.get('Accept')}
+            json={'local_path': local_path, 'scan_dir': scan_dir, 'scan_type': data.get('scan_type'), 'url_pattern': data.get('url_pattern')},
+            headers={'Accept': request.headers.get('Accept')},
+            timeout=FAST_SCAN_TIMEOUT # <-- NEW: Fast timeout
         )
         response.raise_for_status()
         return response.content, response.status_code, response.headers.items()
     except Exception as e:
-        return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
+        return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 502
 
 # --- API 4: Text Scanner ---
 @app.route('/api/v1/text_scanner', methods=['POST'])
@@ -210,20 +158,20 @@ def text_scanner():
     folder_url = data.get('folder_in_repo')
     if not folder_url: return jsonify({'error': 'Missing folder_in_repo'}), 400
 
-    files_list, error = get_repo_files(folder_url)
+    local_path, _, scan_dir, error = download_repo_item(folder_url)
     if error: return jsonify({'error': error}), 500
-    if not files_list: return jsonify({'analytics': {'files_scanned': 0}, 'details': []})
     
     try:
         response = requests.post(
             f"{SERVICES['content_scanner']}/run_text_scan",
-            json={'files': files_list, 'regex': data.get('regex'), 'case_sensitive': data.get('case_sensitive')},
-            headers={'Accept': request.headers.get('Accept')}
+            json={'local_path': local_path, 'scan_dir': scan_dir, 'regex': data.get('regex'), 'case_sensitive': data.get('case_sensitive')},
+            headers={'Accept': request.headers.get('Accept')},
+            timeout=FAST_SCAN_TIMEOUT # <-- NEW: Fast timeout
         )
         response.raise_for_status()
         return response.content, response.status_code, response.headers.items()
     except Exception as e:
-        return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
+        return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 502
 
 # --- API 5: Folder Analytics ---
 @app.route('/api/v1/analytics', methods=['POST'])
@@ -232,19 +180,21 @@ def analytics():
     folder_url = data.get('folder_in_repo')
     if not folder_url: return jsonify({'error': 'Missing folder_in_repo'}), 400
 
-    files_list, error = get_repo_files(folder_url)
+    local_path, _, scan_dir, error = download_repo_item(folder_url)
     if error: return jsonify({'error': error}), 500
-    if not files_list: return jsonify({'analytics': {'files_scanned': 0}})
     
     try:
         response = requests.post(
             f"{SERVICES['content_scanner']}/run_analytics",
-            json={'files': files_list} # Pass the file content
+            json={'local_path': local_path, 'scan_dir': scan_dir},
+            timeout=FAST_SCAN_TIMEOUT # <-- NEW: Fast timeout
         )
         response.raise_for_status()
         return response.json(), response.status_code
+    except requests.exceptions.Timeout:
+        return jsonify({'error': 'Analytics service timed out'}), 504
     except Exception as e:
-        return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
+        return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 502
 
 # --- API 6: Folder Lister ---
 @app.route('/api/v1/list_folder', methods=['POST'])
@@ -253,32 +203,19 @@ def list_folder():
     folder_url = data.get('folder_in_repo')
     if not folder_url: return jsonify({'error': 'Missing folder_in_repo'}), 400
 
-    owner, repo, branch, path, error = parse_github_url(folder_url)
+    local_path, folder_name, scan_dir, error = download_repo_item(folder_url)
     if error: return jsonify({'error': error}), 500
     
-    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={branch}"
-    
     try:
-        headers = {"Accept": "application/vnd.github.v3+json"}
-        response = requests.get(api_url, headers=headers)
+        response = requests.post(
+            f"{SERVICES['content_scanner']}/run_list_folder",
+            json={'local_path': local_path, 'folder_name': folder_name, 'scan_dir': scan_dir},
+            timeout=FAST_SCAN_TIMEOUT # <-- NEW: Fast timeout
+        )
         response.raise_for_status()
-        items = response.json()
-        
-        files = []
-        sub_folders = []
-        for item in items:
-            if item['type'] == 'file':
-                files.append(item['name'])
-            elif item['type'] == 'dir':
-                sub_folders.append(item['name'])
-                
-        return jsonify({
-            'folder_path': path,
-            'files': sorted(files),
-            'sub_folders': sorted(sub_folders)
-        })
+        return response.json(), response.status_code
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 502
 
 # --- API 7: File Detail Extractor ---
 @app.route('/api/v1/get_file_details', methods=['POST'])
@@ -287,19 +224,19 @@ def get_file_details():
     file_url = data.get('file_in_repo')
     if not file_url: return jsonify({'error': 'Missing file_in_repo'}), 400
 
-    files_list, error = get_repo_files(file_url) # This will download the single file
+    local_path, file_name, scan_dir, error = download_repo_item(file_url)
     if error: return jsonify({'error': error}), 500
-    if not files_list: return jsonify({'error': 'File not found or is not markdown'}), 404
     
     try:
         response = requests.post(
             f"{SERVICES['content_scanner']}/run_get_file_details",
-            json={'file': files_list[0]} # Send the single file's content
+            json={'local_path': local_path, 'file_name': file_name, 'scan_dir': scan_dir},
+            timeout=FAST_SCAN_TIMEOUT # <-- NEW: Fast timeout
         )
         response.raise_for_status()
         return response.json(), response.status_code
     except Exception as e:
-        return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
+        return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 502
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

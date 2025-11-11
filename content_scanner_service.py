@@ -2,10 +2,54 @@ import os
 import re
 import csv
 import io
+import shutil
 from flask import Flask, request, jsonify, Response
 from collections import Counter
 
 app = Flask(__name__)
+
+# --- NEW: Safe Cleanup ---
+SCAN_CACHE_DIR = '/tmp/scans'
+
+def cleanup_scan(scan_dir):
+    try:
+        if not scan_dir:
+            return
+        # Resolve real paths to prevent path-traversal deletes
+        real_scan_dir = os.path.realpath(scan_dir)
+        real_cache = os.path.realpath(SCAN_CACHE_DIR)
+
+        if not real_scan_dir.startswith(real_cache + os.sep):
+            # refuse to delete anything outside the scan cache
+            print(f"Refusing to delete {real_scan_dir}: not inside {real_cache}")
+            return
+
+        shutil.rmtree(real_scan_dir)
+    except FileNotFoundError:
+        pass # already removed
+    except Exception as e:
+        print(f"Warning: Failed to cleanup {scan_dir}. Error: {e}")
+
+# --- Helper: Read File ---
+def read_file_content(full_path):
+    try:
+        with open(full_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        title = (re.search(r'^\s*#\s+(.+)', content, re.MULTILINE) or [None, 'No H1 Title Found'])[1].strip()
+        return content, title, None
+    except Exception as e:
+        return None, None, f"Failed to read file: {e}"
+
+# --- Helper: Find all .md files in a path ---
+def find_markdown_files(local_path):
+    md_files = []
+    if os.path.isfile(local_path) and local_path.endswith('.md'):
+        return [local_path]
+    for root, _, files in os.walk(local_path):
+        for file in files:
+            if file.endswith('.md'):
+                md_files.append(os.path.join(root, file))
+    return md_files
 
 # --- Helper: CSV Generation ---
 def generate_csv(data, headers):
@@ -20,6 +64,8 @@ def create_response(data, analytics=None):
     if request.headers.get('Accept') == 'text/csv':
         if not data.get('details'):
             return "No details to export", 400
+        if not data['details']: # Handle empty list
+             return "No details to export", 200
         headers = data['details'][0].keys()
         return generate_csv(data['details'], headers)
     
@@ -31,181 +77,257 @@ def create_response(data, analytics=None):
 @app.route('/run_code_blocks', methods=['POST'])
 def run_code_blocks():
     data = request.json
-    files = data.get('files', []) # This is now a list of {'path': ..., 'content': ...}
+    local_path = data.get('local_path')
+    scan_dir = data.get('scan_dir')
     scan_type = data.get('scan_type')
     language = data.get('language', '').lower()
     
-    detailed_results = []
-    files_with_matches = 0
-    
-    for file_data in files:
-        content = file_data['content']
-        title = (re.search(r'^\s*#\s+(.+)', content, re.MULTILINE) or [None, 'No H1 Title Found'])[1].strip()
-        rel_file = file_data['path']
-        found_on_page = False
-        
-        if scan_type == 'untagged':
-            for i, line in enumerate(content.split('\n'), 1):
-                if line.strip() == '```':
-                    detailed_results.append({'file': rel_file, 'title': title, 'line_number': i})
-                    found_on_page = True
-        
-        elif scan_type == 'specific_language':
-            for i, line in enumerate(content.split('\n'), 1):
-                if line.strip().lower() == '```' + language:
-                    detailed_results.append({'file': rel_file, 'title': title, 'line_number': i, 'language_tag': language})
-                    found_on_page = True
-        
-        if found_on_page:
-            files_with_matches += 1
+    try:
+        if not local_path or not os.path.exists(local_path):
+            return jsonify({'error': 'local_path missing or not found'}), 400
 
-    analytics = {'files_scanned': len(files), 'files_with_matches': files_with_matches}
-    return create_response({'details': detailed_results}, analytics)
+        md_files = find_markdown_files(local_path)
+        detailed_results = []
+        files_with_matches = 0
+        
+        for f in md_files:
+            content, title, error = read_file_content(f)
+            if error: continue
+            
+            rel_file = os.path.relpath(f, local_path)
+            found_on_page = False
+            
+            if scan_type == 'untagged':
+                for i, line in enumerate(content.split('\n'), 1):
+                    if line.strip() == '```':
+                        detailed_results.append({'file': rel_file, 'title': title, 'line_number': i})
+                        found_on_page = True
+            
+            elif scan_type == 'specific_language':
+                for i, line in enumerate(content.split('\n'), 1):
+                    if line.strip().lower() == '```' + language:
+                        detailed_results.append({'file': rel_file, 'title': title, 'line_number': i, 'language_tag': language})
+                        found_on_page = True
+            
+            if found_on_page:
+                files_with_matches += 1
+
+        analytics = {'files_scanned': len(md_files), 'files_with_matches': files_with_matches}
+        return create_response({'details': detailed_results}, analytics)
+    finally:
+        if scan_dir:
+            cleanup_scan(scan_dir)
 
 # --- Endpoint 2: Link Scanner ---
 @app.route('/run_link_scan', methods=['POST'])
 def run_link_scan():
     data = request.json
-    files = data.get('files', [])
+    local_path = data.get('local_path')
+    scan_dir = data.get('scan_dir')
     scan_type = data.get('scan_type')
     url_pattern = data.get('url_pattern', '')
     
-    detailed_results = []
-    total_links_found = 0
-    files_with_matches = 0
-    
-    for file_data in files:
-        content = file_data['content']
-        title = (re.search(r'^\s*#\s+(.+)', content, re.MULTILINE) or [None, 'No H1 Title Found'])[1].strip()
-        rel_file = file_data['path']
+    try:
+        if not local_path or not os.path.exists(local_path):
+            return jsonify({'error': 'local_path missing or not found'}), 400
+
+        md_files = find_markdown_files(local_path)
+        detailed_results = []
+        total_links_found = 0
+        files_with_matches = 0
         
-        links_in_file = re.findall(r'\[(.*?)\]\(((?!#)\S+)\)', content)
-        found_on_page = False
-        
-        for text, link in links_in_file:
-            match = False
-            if scan_type == 'internal' and not link.startswith('http'):
-                match = True
-            elif scan_type == 'external' and link.startswith('http'):
-                match = True
-            elif scan_type == 'starting_with' and link.startswith(url_pattern):
-                match = True
-                
-            if match:
-                detailed_results.append({'file': rel_file, 'title': title, 'anchor': text, 'link': link})
-                total_links_found += 1
-                found_on_page = True
-        
-        if found_on_page:
-            files_with_matches += 1
+        for f in md_files:
+            content, title, error = read_file_content(f)
+            if error: continue
             
-    analytics = {'files_scanned': len(files), 'files_with_matches': files_with_matches, 'total_links_found': total_links_found}
-    return create_response({'details': detailed_results}, analytics)
+            rel_file = os.path.relpath(f, local_path)
+            links_in_file = re.findall(r'\[(.*?)\]\(((?!#)\S+)\)', content)
+            found_on_page = False
+            
+            for text, link in links_in_file:
+                match = False
+                if scan_type == 'internal' and not link.startswith('http'):
+                    match = True
+                elif scan_type == 'external' and link.startswith('http'):
+                    match = True
+                elif scan_type == 'starting_with' and link.startswith(url_pattern):
+                    match = True
+                    
+                if match:
+                    detailed_results.append({'file': rel_file, 'title': title, 'anchor': text, 'link': link})
+                    total_links_found += 1
+                    found_on_page = True
+            
+            if found_on_page:
+                files_with_matches += 1
+                
+        analytics = {'files_scanned': len(md_files), 'files_with_matches': files_with_matches, 'total_links_found': total_links_found}
+        return create_response({'details': detailed_results}, analytics)
+    finally:
+        if scan_dir:
+            cleanup_scan(scan_dir)
 
 # --- Endpoint 3: Text Scanner ---
 @app.route('/run_text_scan', methods=['POST'])
 def run_text_scan():
     data = request.json
-    files = data.get('files', [])
+    local_path = data.get('local_path')
+    scan_dir = data.get('scan_dir')
     regex_pattern = data.get('regex')
     case_sensitive = data.get('case_sensitive', False)
     
-    if not regex_pattern:
-        return jsonify({'error': 'Missing regex pattern'}), 400
-        
-    flags = re.IGNORECASE if not case_sensitive else 0
     try:
-        regex = re.compile(regex_pattern, flags)
-    except re.error as e:
-        return jsonify({'error': f"Invalid Regex: {e}"}), 400
+        if not local_path or not os.path.exists(local_path):
+            return jsonify({'error': 'local_path missing or not found'}), 400
+        if not regex_pattern:
+            return jsonify({'error': 'Missing regex pattern'}), 400
+            
+        flags = re.IGNORECASE if not case_sensitive else 0
+        try:
+            regex = re.compile(regex_pattern, flags)
+        except re.error as e:
+            return jsonify({'error': f"Invalid Regex: {e}"}), 400
+            
+        md_files = find_markdown_files(local_path)
+        detailed_results = []
+        total_matches_found = 0
+        files_with_matches = 0
         
-    detailed_results = []
-    total_matches_found = 0
-    files_with_matches = 0
-    
-    for file_data in files:
-        content = file_data['content']
-        title = (re.search(r'^\s*#\s+(.+)', content, re.MULTILINE) or [None, 'No H1 Title Found'])[1].strip()
-        rel_file = file_data['path']
-        found_on_page = False
-        
-        lines = content.split('\n')
-        for i, line in enumerate(lines, 1):
-            if regex.search(line):
-                detailed_results.append({'file': rel_file, 'title': title, 'line_number': i, 'line_text': line.strip()})
-                total_matches_found += 1
-                found_on_page = True
+        for f in md_files:
+            content, title, error = read_file_content(f)
+            if error: continue
+            
+            rel_file = os.path.relpath(f, local_path)
+            found_on_page = False
+            
+            lines = content.split('\n')
+            for i, line in enumerate(lines, 1):
+                if regex.search(line):
+                    detailed_results.append({'file': rel_file, 'title': title, 'line_number': i, 'line_text': line.strip()})
+                    total_matches_found += 1
+                    found_on_page = True
 
-        if found_on_page:
-            files_with_matches += 1
+            if found_on_page:
+                files_with_matches += 1
 
-    analytics = {'files_scanned': len(files), 'files_with_matches': files_with_matches, 'total_matches_found': total_matches_found}
-    return create_response({'details': detailed_results}, analytics)
+        analytics = {'files_scanned': len(md_files), 'files_with_matches': files_with_matches, 'total_matches_found': total_matches_found}
+        return create_response({'details': detailed_results}, analytics)
+    finally:
+        if scan_dir:
+            cleanup_scan(scan_dir)
 
 # --- Endpoint 4: Folder Analytics ---
 @app.route('/run_analytics', methods=['POST'])
 def run_analytics():
     data = request.json
-    files = data.get('files', [])
+    local_path = data.get('local_path')
+    scan_dir = data.get('scan_dir')
     
-    if not files:
-        return jsonify({'analytics': {'files_scanned': 0}})
+    try:
+        if not local_path or not os.path.exists(local_path):
+            return jsonify({'error': 'local_path missing or not found'}), 400
 
-    analytics = {
-        'files_scanned': len(files), 'total_lines': 0, 'total_links': 0,
-        'total_external_links': 0, 'total_code_blocks': 0, 'total_untagged_blocks': 0
-    }
-    
-    for file_data in files:
-        content = file_data['content']
-        analytics['total_lines'] += len(content.split('\n'))
-        links = re.findall(r'\[(.*?)\]\(((?!#)\S+)\)', content)
-        analytics['total_links'] += len(links)
-        analytics['total_external_links'] += sum(1 for _, link in links if link.startswith('http'))
+        md_files = find_markdown_files(local_path)
+        if not md_files:
+            return jsonify({'analytics': {'files_scanned': 0}})
+
+        analytics = {
+            'files_scanned': len(md_files), 'total_lines': 0, 'total_links': 0,
+            'total_external_links': 0, 'total_code_blocks': 0, 'total_untagged_blocks': 0
+        }
         
-        blocks = re.findall(r'^```(.*)$', content, re.MULTILINE)
-        analytics['total_code_blocks'] += len(blocks)
-        analytics['total_untagged_blocks'] += sum(1 for lang in blocks if not lang.strip())
+        for f in md_files:
+            content, _, error = read_file_content(f)
+            if error: continue
+            
+            analytics['total_lines'] += len(content.split('\n'))
+            links = re.findall(r'\[(.*?)\]\(((?!#)\S+)\)', content)
+            analytics['total_links'] += len(links)
+            analytics['total_external_links'] += sum(1 for _, link in links if link.startswith('http'))
+            
+            blocks = re.findall(r'^```(.*)$', content, re.MULTILINE)
+            analytics['total_code_blocks'] += len(blocks)
+            analytics['total_untagged_blocks'] += sum(1 for lang in blocks if not lang.strip())
 
-    return jsonify({'analytics': analytics})
+        return jsonify({'analytics': analytics})
+    finally:
+        if scan_dir:
+            cleanup_scan(scan_dir)
 
-# --- Endpoint 5: Folder Lister (No longer used by gateway) ---
+# --- Endpoint 5: Folder Lister ---
 @app.route('/run_list_folder', methods=['POST'])
 def run_list_folder():
-    return jsonify({'error': 'This endpoint is deprecated and handled by the gateway'}), 500
+    data = request.json
+    local_path = data.get('local_path')
+    scan_dir = data.get('scan_dir')
+    folder_name = data.get('folder_name')
+    
+    try:
+        if not local_path or not os.path.exists(local_path):
+            return jsonify({'error': 'local_path missing or not found'}), 400
+            
+        files = []
+        sub_folders = []
+        try:
+            for item in os.listdir(local_path):
+                if os.path.isdir(os.path.join(local_path, item)):
+                    sub_folders.append(item)
+                else:
+                    files.append(item)
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+            
+        return jsonify({
+            'folder_path': folder_name,
+            'files': sorted(files),
+            'sub_folders': sorted(sub_folders)
+        })
+    finally:
+        if scan_dir:
+            cleanup_scan(scan_dir)
 
 # --- Endpoint 6: File Detail Extractor ---
 @app.route('/run_get_file_details', methods=['POST'])
 def run_get_file_details():
     data = request.json
-    file_data = data.get('file') # Expects a single {'path':..., 'content':...}
+    local_path = data.get('local_path') # This is the full path to the *file*
+    scan_dir = data.get('scan_dir')
+    file_name = data.get('file_name')
     
-    content = file_data['content']
-    title = (re.search(r'^\s*#\s+(.+)', content, re.MULTILINE) or [None, 'No H1 Title Found'])[1].strip()
+    try:
+        if not local_path or not os.path.exists(local_path):
+            return jsonify({'error': 'local_path missing or not found'}), 400
 
-    headers = [{'level': len(h[0]), 'text': h[1].strip()} for h in re.findall(r'^(#+)\s+(.+)', content, re.MULTILINE)]
-    links = [{'text': t, 'url': u, 'type': 'external' if u.startswith('http') else 'internal'} for t, u in re.findall(r'\[(.*?)\]\(((?!#)\S+)\)', content)]
-    images = [{'alt_text': a, 'src': s} for a, s in re.findall(r'!\[(.*?)\]\((.*?)\)', content)]
-    code_blocks = [{'language': l.strip() or 'untagged'} for l in re.findall(r'^```(.*)$', content, re.MULTILINE)]
+        content, title, error = read_file_content(local_path)
+        if error:
+            return jsonify({'error': error}), 500
 
-    return jsonify({
-        'file': file_data['path'],
-        'title': title,
-        'analytics': {
-            'line_count': len(content.split('\n')),
-            'word_count': len(re.findall(r'\b\w+\b', content)),
-            'header_count': dict(Counter(h['level'] for h in headers)),
-            'link_count': {'total': len(links), 'external': sum(1 for l in links if l['type'] == 'external'), 'internal': sum(1 for l in links if l['type'] == 'internal')},
-            'image_count': len(images),
-            'code_block_count': len(code_blocks)
-        },
-        'lists': {
-            'headers': headers,
-            'links': links,
-            'images': images,
-            'code_blocks': code_blocks
-        }
-    })
+        headers = [{'level': len(h[0]), 'text': h[1].strip()} for h in re.findall(r'^(#+)\s+(.+)', content, re.MULTILINE)]
+        links = [{'text': t, 'url': u, 'type': 'external' if u.startswith('http') else 'internal'} for t, u in re.findall(r'\[(.*?)\]\(((?!#)\S+)\)', content)]
+        images = [{'alt_text': a, 'src': s} for a, s in re.findall(r'!\[(.*?)\]\((.*?)\)', content)]
+        code_blocks = [{'language': l.strip() or 'untagged'} for l in re.findall(r'^```(.*)$', content, re.MULTILINE)]
+
+        return jsonify({
+            'file': file_name,
+            'title': title,
+            'analytics': {
+                'line_count': len(content.split('\n')),
+                'word_count': len(re.findall(r'\b\w+\b', content)),
+                'header_count': dict(Counter(h['level'] for h in headers)),
+                'link_count': {'total': len(links), 'external': sum(1 for l in links if l['type'] == 'external'), 'internal': sum(1 for l in links if l['type'] == 'internal')},
+                'image_count': len(images),
+                'code_block_count': len(code_blocks)
+            },
+            'lists': {
+                'headers': headers,
+                'links': links,
+                'images': images,
+                'code_blocks': code_blocks
+            }
+        })
+    finally:
+        if scan_dir:
+            cleanup_scan(scan_dir)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001)
