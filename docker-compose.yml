@@ -3,12 +3,13 @@ services:
   api-gateway:
     build:
       context: .
-      dockerfile: Dockerfile.gateway
+      dockerfile: Dockerfile.base # <-- THIS IS THE FIX
     ports:
       - "5000:5000"
     volumes:
       - .:/app
-    # NOTE: No 'scan-cache' volume
+      # This service WRITES to the shared disk
+      - scan-cache:/tmp/scans
     command: python api_gateway.py
     depends_on:
       - content-scanner
@@ -21,7 +22,7 @@ services:
       dockerfile: Dockerfile.base
     volumes:
       - .:/app
-    # NOTE: No 'scan-cache' volume
+      - scan-cache:/tmp/scans
     expose:
       - "5001"
     command: python content_scanner_service.py
@@ -33,7 +34,11 @@ services:
       dockerfile: Dockerfile.base
     volumes:
       - .:/app
-    # NOTE: No 'scan-cache' volume
+      - scan-cache:/tmp/scans
     expose:
       - "5002"
     command: python http_auditor_service.py
+
+# This creates the one shared disk
+volumes:
+  scan-cache:
