@@ -37,13 +37,14 @@ def parse_github_url(item_url):
         repo = parts[2].replace('.git', '')
         repo_url = f"https://github.com/{user}/{repo}.git"
         
-        if 'tree' in parts:
-            idx = parts.index('tree')
-        elif 'blob' in parts:
-            idx = parts.index('blob')
-        else:
-            return repo_url, "main", "", "URL does not contain /tree/ or /blob/. Assuming root." # Best guess for root
+        branch_indicator = 'tree'
+        if 'blob' in parts:
+            branch_indicator = 'blob'
+        
+        if branch_indicator not in parts:
+             return repo_url, "main", "", "URL does not contain /tree/ or /blob/. Assuming root." # Best guess for root
 
+        idx = parts.index(branch_indicator)
         branch = parts[idx + 1]
         folder_path = "/".join(parts[idx+2:])
         
@@ -53,60 +54,64 @@ def parse_github_url(item_url):
 
 def download_repo_item(item_url):
     """
-    Downloads a single folder from GitHub using git sparse-checkout.
-    Returns the *full path* to the *downloaded subfolder*.
+    Downloads a single folder or file from GitHub using git sparse-checkout.
+    This version does NOT use --cone mode, which is more reliable.
     """
     scan_id = str(uuid.uuid4())
     # This is the temporary directory where we clone the *empty* repo
     scan_dir = os.path.join(SCAN_CACHE_DIR, scan_id)
     
     try:
-        repo_url, branch, folder_path, error = parse_github_url(item_url)
+        repo_url, branch, item_path, error = parse_github_url(item_url)
         if error:
-            return None, None, error
+            return None, None, None, error
 
         # 1. Clone the repo, but don't download any files yet
         cmd = ['git', 'clone', '--no-checkout', '--depth', '1', '-b', branch, repo_url, scan_dir]
         subprocess.run(cmd, capture_output=True, text=True, check=True)
 
-        # 2. Tell git we are using sparse checkout
-        cmd = ['git', 'sparse-checkout', 'init', '--cone']
+        # 2. Init sparse checkout (NON-CONE mode)
+        cmd = ['git', 'sparse-checkout', 'init']
         subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=scan_dir)
 
-        # 3. Set the *one* folder we want to download
-        cmd = ['git', 'sparse-checkout', 'set', folder_path]
+        # 3. Set the *one* folder/file we want to download
+        # This will write the path to .git/info/sparse-checkout
+        cmd = ['git', 'sparse-checkout', 'set', item_path]
         subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=scan_dir)
 
-        # 4. Now, download *only* that folder
+        # 4. Now, download *only* that item
         cmd = ['git', 'checkout', branch]
         subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=scan_dir)
         
-        # 5. Return the full path to the *specific folder* we downloaded
-        # This is the path our other services will scan
-        final_path = os.path.join(scan_dir, folder_path)
-        item_name = os.path.basename(folder_path) # e.g., "mariadb-cloud"
+        # 5. Return the full path to the *specific item* we downloaded
+        final_path = os.path.join(scan_dir, item_path)
+        item_name = os.path.basename(item_path) # e.g., "mariadb-cloud" or "README.md"
         
-        return final_path, item_name, None
+        # *** NEW VALIDATION STEP ***
+        if not os.path.exists(final_path):
+            raise Exception(f"Path '{item_path}' was not found in the repository. Check spelling and case-sensitivity.")
+        
+        return final_path, item_name, scan_dir, None # Return the *base* scan_dir for cleanup
         
     except subprocess.CalledProcessError as e:
-        error_message = f"Git operation failed. Repo: {repo_url}, Folder: {folder_path}. Error: {e.stderr}"
-        return None, None, error_message
+        error_message = f"Git operation failed. Repo: {repo_url}, Path: {item_path}. Error: {e.stderr}"
+        if os.path.exists(scan_dir): shutil.rmtree(scan_dir) # Clean up failed attempt
+        return None, None, None, error_message
     except Exception as e:
-        return None, None, str(e)
+        if os.path.exists(scan_dir): shutil.rmtree(scan_dir) # Clean up failed attempt
+        return None, None, None, str(e)
 # --- (((( END OF NEW DOWNLOAD FUNCTION )))) ---
 
 
 # --- Helper: Cleanup ---
-def cleanup_scan(local_path):
+def cleanup_scan(scan_dir):
     """
-    Deletes the temporary directory for a scan.
+    Deletes the entire temporary scan directory (e.g., /tmp/scans/uuid)
     """
     try:
-        # We want to delete the parent UUID folder (e.g., /tmp/scans/scan_id)
-        # We get this by going "up" one level from the final_path
-        shutil.rmtree(os.path.dirname(local_path))
+        shutil.rmtree(scan_dir)
     except Exception as e:
-        print(f"Warning: Failed to cleanup {local_path}. Error: {e}")
+        print(f"Warning: Failed to cleanup {scan_dir}. Error: {e}")
 
 # --- API: Serve the API Docs ---
 @app.route('/')
@@ -129,8 +134,7 @@ def http_codes():
     if not folder_url or not http_codes:
         return jsonify({'error': 'Missing folder_in_repo or http_codes'}), 400
 
-    # local_path is now the path to the *subfolder* (e.g., /tmp/scans/uuid/mariadb-cloud)
-    local_path, _, error = download_repo_item(folder_url)
+    local_path, _, scan_dir, error = download_repo_item(folder_url)
     if error: return jsonify({'error': error}), 500
     
     try:
@@ -140,11 +144,11 @@ def http_codes():
             headers={'Accept': request.headers.get('Accept')}
         )
         response.raise_for_status()
+        cleanup_scan(scan_dir)
         return response.content, response.status_code, response.headers.items()
     except Exception as e:
+        cleanup_scan(scan_dir)
         return jsonify({'error': f"Error connecting to http-auditor: {e}"}), 500
-    finally:
-        cleanup_scan(local_path)
 
 # --- API 2: Code Block Scanner ---
 @app.route('/api/v1/code_blocks', methods=['POST'])
@@ -153,7 +157,7 @@ def code_blocks():
     folder_url = data.get('folder_in_repo')
     if not folder_url: return jsonify({'error': 'Missing folder_in_repo'}), 400
     
-    local_path, _, error = download_repo_item(folder_url)
+    local_path, _, scan_dir, error = download_repo_item(folder_url)
     if error: return jsonify({'error': error}), 500
     
     try:
@@ -163,11 +167,11 @@ def code_blocks():
             headers={'Accept': request.headers.get('Accept')}
         )
         response.raise_for_status()
+        cleanup_scan(scan_dir)
         return response.content, response.status_code, response.headers.items()
     except Exception as e:
+        cleanup_scan(scan_dir)
         return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
-    finally:
-        cleanup_scan(local_path)
 
 # --- API 3: Link Scanner ---
 @app.route('/api/v1/links', methods=['POST'])
@@ -176,7 +180,7 @@ def links():
     folder_url = data.get('folder_in_repo')
     if not folder_url: return jsonify({'error': 'Missing folder_in_repo'}), 400
 
-    local_path, _, error = download_repo_item(folder_url)
+    local_path, _, scan_dir, error = download_repo_item(folder_url)
     if error: return jsonify({'error': error}), 500
     
     try:
@@ -186,11 +190,11 @@ def links():
             headers={'Accept': request.headers.get('Accept')}
         )
         response.raise_for_status()
+        cleanup_scan(scan_dir)
         return response.content, response.status_code, response.headers.items()
     except Exception as e:
+        cleanup_scan(scan_dir)
         return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
-    finally:
-        cleanup_scan(local_path)
 
 # --- API 4: Text Scanner ---
 @app.route('/api/v1/text_scanner', methods=['POST'])
@@ -199,7 +203,7 @@ def text_scanner():
     folder_url = data.get('folder_in_repo')
     if not folder_url: return jsonify({'error': 'Missing folder_in_repo'}), 400
 
-    local_path, _, error = download_repo_item(folder_url)
+    local_path, _, scan_dir, error = download_repo_item(folder_url)
     if error: return jsonify({'error': error}), 500
     
     try:
@@ -209,11 +213,11 @@ def text_scanner():
             headers={'Accept': request.headers.get('Accept')}
         )
         response.raise_for_status()
+        cleanup_scan(scan_dir)
         return response.content, response.status_code, response.headers.items()
     except Exception as e:
+        cleanup_scan(scan_dir)
         return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
-    finally:
-        cleanup_scan(local_path)
 
 # --- API 5: Folder Analytics ---
 @app.route('/api/v1/analytics', methods=['POST'])
@@ -222,7 +226,7 @@ def analytics():
     folder_url = data.get('folder_in_repo')
     if not folder_url: return jsonify({'error': 'Missing folder_in_repo'}), 400
 
-    local_path, _, error = download_repo_item(folder_url)
+    local_path, _, scan_dir, error = download_repo_item(folder_url)
     if error: return jsonify({'error': error}), 500
     
     try:
@@ -231,11 +235,11 @@ def analytics():
             json={'local_path': local_path}
         )
         response.raise_for_status()
+        cleanup_scan(scan_dir)
         return response.json(), response.status_code
     except Exception as e:
+        cleanup_scan(scan_dir)
         return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
-    finally:
-        cleanup_scan(local_path)
 
 # --- API 6: Folder Lister ---
 @app.route('/api/v1/list_folder', methods=['POST'])
@@ -244,7 +248,7 @@ def list_folder():
     folder_url = data.get('folder_in_repo')
     if not folder_url: return jsonify({'error': 'Missing folder_in_repo'}), 400
 
-    local_path, folder_name, error = download_repo_item(folder_url)
+    local_path, folder_name, scan_dir, error = download_repo_item(folder_url)
     if error: return jsonify({'error': error}), 500
     
     try:
@@ -253,11 +257,11 @@ def list_folder():
             json={'local_path': local_path, 'folder_name': folder_name}
         )
         response.raise_for_status()
+        cleanup_scan(scan_dir)
         return response.json(), response.status_code
     except Exception as e:
+        cleanup_scan(scan_dir)
         return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
-    finally:
-        cleanup_scan(local_path)
 
 # --- API 7: File Detail Extractor ---
 @app.route('/api/v1/get_file_details', methods=['POST'])
@@ -266,7 +270,7 @@ def get_file_details():
     file_url = data.get('file_in_repo')
     if not file_url: return jsonify({'error': 'Missing file_in_repo'}), 400
 
-    local_path, file_name, error = download_repo_item(file_url)
+    local_path, file_name, scan_dir, error = download_repo_item(file_url)
     if error: return jsonify({'error': error}), 500
     
     try:
@@ -275,11 +279,11 @@ def get_file_details():
             json={'local_path': local_path, 'file_name': file_name}
         )
         response.raise_for_status()
+        cleanup_scan(scan_dir)
         return response.json(), response.status_code
     except Exception as e:
+        cleanup_scan(scan_dir)
         return jsonify({'error': f"Error connecting to content-scanner: {e}"}), 500
-    finally:
-        cleanup_scan(local_path)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
